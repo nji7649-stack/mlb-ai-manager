@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V15.0 (AI 배당 + 다중 스코어 예측)")
+st.title("⚾ MLB AI 감독 모드 V16.0 (AI 전문가 브리핑 탑재)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -88,13 +88,10 @@ def load_team_momentum():
             l10_dict[name] = {'rate': l10_win_rate, 'str': l10_str}
     return l10_dict
 
-# 💡 AI 적정 배당 산출 함수 (피타고리안 기대승률 기반)
 def calculate_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
-    # 기본 화력 추출
     h_ops = df_h[(df_h['팀'] == h_team) & (df_h['타수'] > 50)]['OPS'].mean() or 0.720
     a_ops = df_h[(df_h['팀'] == a_team) & (df_h['타수'] > 50)]['OPS'].mean() or 0.720
     
-    # 선발 투수 FIP 추출
     h_p_data = df_p[df_p['이름'] == h_p]
     a_p_data = df_p[df_p['이름'] == a_p]
     h_s_fip = h_p_data['FIP'].values[0] if not h_p_data.empty else 4.50
@@ -106,7 +103,6 @@ def calculate_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
     h_eff_fip = (h_s_fip * 0.6) + (h_bp_fip * 0.4)
     a_eff_fip = (a_s_fip * 0.6) + (a_bp_fip * 0.4)
     
-    # 예상 득점력 연산
     h_attack = h_ops / 0.720
     a_attack = a_ops / 0.720
     
@@ -114,14 +110,11 @@ def calculate_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
     h_exp_runs = ((a_eff_fip * h_attack) + 0.2) * pf
     a_exp_runs = (h_eff_fip * a_attack) * pf
     
-    # 피타고리안 기대 승률
     win_prob = (h_exp_runs ** 1.83) / ((h_exp_runs ** 1.83) + (a_exp_runs ** 1.83))
     
-    # 환급률 94% 가정 프로토 배당 계산
     h_odds = round(0.94 / win_prob, 2)
     a_odds = round(0.94 / (1 - win_prob), 2)
     
-    # 너무 극단적인 배당 방지
     h_odds = max(1.10, min(h_odds, 6.00))
     a_odds = max(1.10, min(a_odds, 6.00))
     
@@ -134,7 +127,6 @@ def load_schedule(target_date):
     res = requests.get(schedule_url).json()
     games = []
     
-    # 배당 계산을 위해 임시로 캐시된 데이터 호출
     df_h, df_p, team_bp_fip = load_mlb_all_data()
 
     if 'dates' in res and len(res['dates']) > 0:
@@ -162,7 +154,6 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
-            # 💡 AI 배당률 계산
             h_odds, a_odds = calculate_ai_odds(home_team, away_team, home_pitcher, away_pitcher, df_h, df_p, team_bp_fip)
 
             home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b> <span style='color:#ffcc00; font-size:13px; margin-left:10px;'>[{h_odds}]</span>"
@@ -274,7 +265,6 @@ def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_b
         elif a_score > h_score: a_wins += 1
         scores.append(f"{h_score} : {a_score}")
 
-    # 💡 최다 발생 스코어 상위 3개를 추출하여 반환합니다.
     top3_scores = Counter(scores).most_common(3)
     formatted_top3 = []
     for score, count in top3_scores:
@@ -283,13 +273,56 @@ def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_b
 
     return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, formatted_top3, h_eff_fip, a_eff_fip, park_factor
 
+# 💡 AI 전력 분석 코멘트 생성 함수
+def generate_ai_commentary(h_team, a_team, h_eff_fip, a_eff_fip, h_ops, a_ops, h_l10_rate, a_l10_rate, h_win_prob):
+    comments = []
+    
+    # 1. 마운드 분석 (FIP 기반)
+    if h_eff_fip < 3.5 and a_eff_fip < 3.5:
+        comments.append("🔥 **[마운드] 팽팽한 투수전 양상:** 양 팀 투수진의 실점 억제력(FIP)이 리그 최상급입니다. 적은 점수 차의 끈적한 승부가 예상됩니다.")
+    elif h_eff_fip > 4.7 and a_eff_fip > 4.7:
+        comments.append("🔥 **[마운드] 다득점 난타전 경고:** 양 팀 마운드가 모두 불안정합니다. 방망이가 터지는 다득점 타격전이 전개될 가능성이 농후합니다.")
+    else:
+        fip_diff = a_eff_fip - h_eff_fip
+        if fip_diff > 0.5:
+            comments.append(f"⚾ **[마운드] {h_team} 우위:** 홈팀 투수진이 객관적인 구위(FIP)에서 확고한 우위를 점하고 있습니다. 마운드 싸움이 유리합니다.")
+        elif fip_diff < -0.5:
+            comments.append(f"⚾ **[마운드] {a_team} 우위:** 원정팀 마운드의 안정감이 더 돋보입니다. 홈팀 타선이 고전할 확률이 높습니다.")
+        else:
+            comments.append("⚾ **[마운드] 백중세:** 양 팀 투수진의 수비 무관 자책점(FIP)이 비슷합니다. 불펜 운영 타이밍이 핵심 변수입니다.")
+
+    # 2. 타선 분석 (플래툰 적용 OPS 기반)
+    ops_diff = h_ops - a_ops
+    if ops_diff > 0.050:
+        comments.append(f"🏏 **[타선] {h_team} 파괴력 우세:** 플래툰 상성까지 고려했을 때, 홈팀 타선의 파괴력이 더 매섭습니다.")
+    elif ops_diff < -0.050:
+        comments.append(f"🏏 **[타선] {a_team} 파괴력 우세:** 원정팀 타선이 상대 투수와의 상성에서 유리한 고지를 점하고 있습니다.")
+    else:
+        comments.append("🏏 **[타선] 화력 팽팽:** 양 팀 타선의 화력 기대치가 대등합니다. 클러치 상황에서의 집중력이 승부를 가를 것입니다.")
+
+    # 3. 분위기 분석 (최근 10경기)
+    if h_l10_rate >= 0.7 and a_l10_rate <= 0.5:
+        comments.append(f"📈 **[기세] {h_team} 상승세:** 홈팀이 최근 무서운 페이스를 타고 있어 팀 분위기가 최고조에 달해 있습니다.")
+    elif a_l10_rate >= 0.7 and h_l10_rate <= 0.5:
+        comments.append(f"📈 **[기세] {a_team} 상승세:** 원정팀의 최근 10경기 기세가 압도적입니다. 홈팀에게 상당히 위협적입니다.")
+
+    # 4. 종합 요약
+    if h_win_prob >= 62.0:
+        comments.append(f"💡 **[AI 종합 한줄평]** 투타 전반에서 **{h_team}**의 객관적 우세가 뚜렷합니다. 이변이 없는 한 홈팀 승리 가능성이 높습니다.")
+    elif h_win_prob <= 38.0:
+        comments.append(f"💡 **[AI 종합 한줄평]** 원정팀 **{a_team}**의 전력이 홈팀을 압도합니다. 원정팀 역배당(또는 정배당)의 가치가 높습니다.")
+    else:
+        comments.append(f"💡 **[AI 종합 한줄평]** 전력이 매우 팽팽한 **박빙 매치(Toss-up)**입니다. 선발 투수의 이닝 소화력과 당일 벤치 개입이 승패를 가릅니다.")
+
+    return comments
+
 st.write("🔄 메이저리그 30개 구단 데이터베이스 동기화 중...")
 
 try:
     df_hitter, df_pitcher, team_bp_fip_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V15.0 완료! (일정표 내 AI 적정 배당 표시 및 스코어 TOP3 예측)")
+    st.success("✅ V16.0 완료! (AI 적정 배당 표시 & 전문가 코멘터리 분석 가동)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -298,7 +331,7 @@ try:
     
     with tab1:
         if not df_schedule.empty:
-            st.markdown("<p style='font-size:13px; color:#cccccc; margin-bottom:5px;'>※ 팀 이름 옆 노란색 숫자는 AI가 전력을 기반으로 산출한 <b>'AI 적정 배당(Implied Odds)'</b>입니다. 프로토 배당과 비교해 보세요!</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:13px; color:#cccccc; margin-bottom:5px;'>※ 팀 이름 옆 노란색 숫자는 AI가 전력을 기반으로 산출한 <b>'AI 자체 예상 배당(Implied Odds)'</b>입니다. 유료 배팅 사이트 배당과 비교해 '가치 있는 팀'을 찾아보세요!</p>", unsafe_allow_html=True)
             html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
             html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀 <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정) <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
             for _, row in df_schedule.iterrows():
@@ -348,7 +381,7 @@ try:
                 a_ops = df_hitter[(df_hitter['팀'] == a_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
                 
             if st.button("🚀 최종 시뮬레이션 돌리기"):
-                my_bar = st.progress(0, text="플래툰, FIP, 체력 밸런스를 종합 연산 중...")
+                my_bar = st.progress(0, text="AI가 전력 데이터를 뜯어보고 분석 코멘트를 작성 중입니다...")
                 for p in range(100):
                     time.sleep(0.01)
                     my_bar.progress(p + 1)
@@ -387,14 +420,22 @@ try:
                 
                 st.markdown("---")
                 st.subheader("🏆 세이버메트릭스 최종 결과 리포트")
-                st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
-                st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
                 
-                # 💡 상위 3개 스코어를 순서대로 출력합니다.
-                st.warning(f"🎯 **예상 스코어 TOP 3 (홈 : 원정)**")
-                st.write(f"🥇 1순위: **{top3_scores[0]}**")
-                st.write(f"🥈 2순위: **{top3_scores[1]}**")
-                st.write(f"🥉 3순위: **{top3_scores[2]}**")
+                # 💡 예측 결과
+                col_res1, col_res2 = st.columns(2)
+                with col_res1:
+                    st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
+                    st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
+                with col_res2:
+                    st.warning(f"🎯 **예상 스코어 TOP 3 (홈 : 원정)**")
+                    st.write(f"🥇 1순위: **{top3_scores[0]}** | 🥈 2순위: **{top3_scores[1]}** | 🥉 3순위: **{top3_scores[2]}**")
+                
+                # 💡 AI 코멘터리 섹션
+                st.markdown("### 📝 AI 전력 분석 브리핑 및 관전 포인트")
+                comments = generate_ai_commentary(h_team, a_team, h_eff, a_eff, h_ops, a_ops, h_l10['rate'], a_l10['rate'], h_win)
+                for comment in comments:
+                    st.markdown(f"> {comment}")
+
         else:
             st.info("예정된 경기가 없습니다.")
             
