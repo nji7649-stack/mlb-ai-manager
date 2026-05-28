@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V10.0 (실시간 라인업 추적기)")
+st.title("⚾ MLB AI 감독 모드 V10.1 (라인업 버그 수정판)")
 
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
@@ -67,7 +67,7 @@ def load_schedule(target_date):
                 '상태/결과': status_str,
                 '홈 팀': home_team, '홈 선발투수': home_pitcher, 
                 '어웨이 팀 (원정)': away_team, '어웨이 선발투수': away_pitcher,
-                'gamePk': game.get('gamePk') # 💡 라인업 조회를 위해 게임 고유 번호 저장
+                'gamePk': game.get('gamePk')
             })
             
     df = pd.DataFrame(games)
@@ -75,7 +75,7 @@ def load_schedule(target_date):
         df = df.sort_values('경기시간(KST)').reset_index(drop=True)
     return df
 
-# 💡 실시간 선발 라인업 가져오기 (1분마다 갱신하여 확인)
+# 💡 '알 수 없음' 에러를 막기 위한 무적의 이름 찾기 로직 적용
 @st.cache_data(ttl=60)
 def load_live_lineup(game_pk):
     try:
@@ -85,18 +85,22 @@ def load_live_lineup(game_pk):
         home_order = res['teams']['home'].get('battingOrder', [])
         away_order = res['teams']['away'].get('battingOrder', [])
         
-        # 명단이 비어있으면 아직 발표 안 된 것
         if len(home_order) == 0 or len(away_order) == 0:
             return None, None
             
         home_players = res['teams']['home']['players']
         away_players = res['teams']['away']['players']
         
-        home_lineup = [home_players.get(f"ID_{pid}", {}).get('person', {}).get('fullName', '알 수 없음') for pid in home_order]
-        away_lineup = [away_players.get(f"ID_{pid}", {}).get('person', {}).get('fullName', '알 수 없음') for pid in away_order]
+        # 키(Key) 이름이 어떻게 들어오든 상관없이, 실제 선수 ID로 딕셔너리를 재조립합니다.
+        home_lookup = {p['person']['id']: p['person']['fullName'] for k, p in home_players.items() if 'person' in p and 'id' in p['person']}
+        away_lookup = {p['person']['id']: p['person']['fullName'] for k, p in away_players.items() if 'person' in p and 'id' in p['person']}
+        
+        # 재조립된 딕셔너리에서 1~9번 타자의 이름을 정확히 매칭해옵니다.
+        home_lineup = [home_lookup.get(pid, '이름 로딩 에러') for pid in home_order]
+        away_lineup = [away_lookup.get(pid, '이름 로딩 에러') for pid in away_order]
         
         return home_lineup, away_lineup
-    except:
+    except Exception as e:
         return None, None
 
 def run_simulation(home_era, away_era, home_ops, away_ops, num_sims=10000):
@@ -131,7 +135,7 @@ st.write("🔄 메이저리그 공식 서버와 연결 중...")
 try:
     df_hitter, df_pitcher = load_mlb_all_data()
     
-    st.success("✅ V10.0 시스템 준비 완료! (실시간 라인업 추적 기능 탑재)")
+    st.success("✅ V10.1 시스템 준비 완료! (라인업 버그 수정 패치 적용)")
     
     st.markdown("### 🗓️ 분석 날짜 선택")
     selected_date = st.date_input("미리 분석하고 싶은 경기 날짜를 선택하세요:", date.today())
@@ -144,7 +148,6 @@ try:
         if not df_schedule.empty:
             
             display_df = df_schedule.set_index('경기시간(KST)')
-            # 표에서는 gamePk(고유번호)를 숨기고 보여줍니다.
             st.dataframe(display_df[['상태/결과', '홈 팀', '홈 선발투수', '어웨이 팀 (원정)', '어웨이 선발투수']], use_container_width=True)
             
             st.markdown("---")
@@ -153,14 +156,12 @@ try:
             game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
             selected_game = st.selectbox("분석할 경기를 선택하세요:", game_options)
             
-            # 선택한 경기의 세부 정보 추출
             selected_row = df_schedule[game_options == selected_game].iloc[0]
             home_team, away_team = selected_row['홈 팀'], selected_row['어웨이 팀 (원정)']
             home_p, away_p = selected_row['홈 선발투수'], selected_row['어웨이 선발투수']
             game_time, game_status = selected_row['경기시간(KST)'], selected_row['상태/결과']
             game_pk = selected_row['gamePk']
             
-            # 💡 실시간 라인업 불러오기 시도
             home_lineup, away_lineup = load_live_lineup(game_pk)
             
             if home_lineup and away_lineup:
@@ -175,14 +176,12 @@ try:
                     for i, player in enumerate(away_lineup):
                         st.write(f"{i+1}. {player}")
                 
-                # 라인업이 있으므로 '해당 9명'의 평균 OPS를 정확하게 계산
                 home_hitters = df_hitter[df_hitter['이름'].isin(home_lineup)]
                 away_hitters = df_hitter[df_hitter['이름'].isin(away_lineup)]
                 home_team_ops = home_hitters['OPS'].mean() if not home_hitters.empty else 0.720
                 away_team_ops = away_hitters['OPS'].mean() if not away_hitters.empty else 0.720
                 
             else:
-                # 라인업이 없으면 전광판 스타일의 '준비중' 배너 띄우기
                 st.markdown(
                     """
                     <div style='text-align:center; padding: 40px; background-color:#2b2b2b; color:#ffcc00; border-radius:10px; margin: 20px 0; border: 2px dashed #ffcc00;'>
@@ -192,7 +191,6 @@ try:
                     """, unsafe_allow_html=True
                 )
                 
-                # 라인업이 없으므로 '팀 전체 주전'의 평균 OPS로 임시 계산
                 home_hitters = df_hitter[(df_hitter['팀'] == home_team) & (df_hitter['타수'] > 100)]
                 away_hitters = df_hitter[(df_hitter['팀'] == away_team) & (df_hitter['타수'] > 100)]
                 home_team_ops = home_hitters['OPS'].mean() if not home_hitters.empty else 0.720
