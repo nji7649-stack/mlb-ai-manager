@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.4 (일정표 버그 완벽 수정)")
+st.title("⚾ MLB AI 감독 모드 V12.5 (스탯 버그 픽스판)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -24,7 +24,17 @@ PARK_FACTORS = {
 def load_mlb_all_data():
     hitter_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&playerPool=ALL&limit=1500"
     h_splits = requests.get(hitter_url).json()['stats'][0]['splits']
-    hitter_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], '타수': r['stat'].get('atBats', 0), 'OPS': r['stat'].get('ops', '.000')} for r in h_splits]
+    
+    # 💡 에러 원인 수정: 홈런과 타율을 다시 가져오도록 복구했습니다.
+    hitter_list = [{
+        '이름': r['player']['fullName'], 
+        '팀': r['team']['name'], 
+        '타수': r['stat'].get('atBats', 0), 
+        '홈런': r['stat'].get('homeRuns', 0),
+        '타율': r['stat'].get('avg', '.000'),
+        'OPS': r['stat'].get('ops', '.000')
+    } for r in h_splits]
+    
     df_h = pd.DataFrame(hitter_list)
     df_h['OPS'] = pd.to_numeric(df_h['OPS'], errors='coerce').fillna(0.0)
     df_h['타수'] = pd.to_numeric(df_h['타수'], errors='coerce').fillna(0)
@@ -160,7 +170,7 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.4 완료! (일정표 100% 크기 복구 및 코드 노출 버그 수정)")
+    st.success("✅ V12.5 완료! (타자 스탯 누락 버그 완벽 수정)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -169,7 +179,6 @@ try:
     
     with tab1:
         if not df_schedule.empty:
-            # 💡 줄바꿈과 띄어쓰기를 최소화하여 마크다운 코드 블록 오류를 원천 차단한 HTML 표 생성
             html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
             html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀</th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정)</th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
             for _, row in df_schedule.iterrows():
@@ -261,6 +270,7 @@ try:
         
     with tab3:
         st.write("2026 시즌 전체 타자 스탯")
+        # 💡 홈런, 타율 복구 확인 완료
         st.dataframe(df_hitter[['이름', '팀', '타수', '홈런', '타율', 'OPS']], use_container_width=True)
         
 except Exception as e:
