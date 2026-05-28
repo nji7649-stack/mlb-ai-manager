@@ -7,8 +7,9 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.5 (스탯 버그 픽스판)")
+st.title("⚾ MLB AI 감독 모드 V12.6 (한글 패치 + 포지션 엔진)")
 
+# 🏟️ 메이저리그 30개 구장 파크 팩터
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
@@ -20,21 +21,38 @@ PARK_FACTORS = {
     'San Diego Padres': 0.94, 'Seattle Mariners': 0.93
 }
 
+# 🗺️ 30개 구단 한글 번역 사전
+TEAM_TRANSLATIONS = {
+    'Arizona Diamondbacks': '애리조나 다이아몬드백스', 'Atlanta Braves': '애틀랜타 브레이브스',
+    'Baltimore Orioles': '볼티모어 오리올스', 'Boston Red Sox': '보스턴 레드삭스',
+    'Chicago Cubs': '시카고 컵스', 'Chicago White Sox': '시카고 화이트삭스',
+    'Cincinnati Reds': '신시내티 레즈', 'Cleveland Guardians': '클리블랜드 가디언스',
+    'Colorado Rockies': '콜로라도 로키스', 'Detroit Tigers': '디트로이트 타이거스',
+    'Houston Astros': '휴스턴 애스트로스', 'Kansas City Royals': '캔자스시티 로열스',
+    'Los Angeles Angels': '로스앤젤레스 에인절스', 'Los Angeles Dodgers': '로스앤젤레스 다저스',
+    'Miami Marlins': '마이매미 말린스', 'Milwaukee Brewers': '밀워키 브루어스',
+    'Minnesota Twins': '미네소타 트윈스', 'New York Mets': '뉴욕 메츠',
+    'New York Yankees': '뉴욕 양키스', 'Athletics': '오클랜드 애슬레틱스',
+    'Oakland Athletics': '오클랜드 애슬레틱스', 'Philadelphia Phillies': '필라델피아 필리스',
+    'Pittsburgh Pirates': '피츠버그 파이어리츠', 'San Diego Padres': '샌디에이고 파드리스',
+    'San Francisco Giants': '샌프란시스코 자이언츠', 'Seattle Mariners': '시애틀 매리너스',
+    'St. Louis Cardinals': '세인트루이스 카디널스', 'Tampa Bay Rays': '탬파베이 레이스',
+    'Texas Rangers': '텍사스 레인저스', 'Toronto Blue Jays': '토론토 블루제이스',
+    'Washington Nationals': '워싱턴 내셔널스'
+}
+
+# 📋 포지션 한글 번역 사전
+POSITION_TRANSLATIONS = {
+    'P': '투수', 'C': '포수', '1B': '1루수', '2B': '2루수', '3B': '3루수',
+    'SS': '유격수', 'LF': '좌익수', 'CF': '중견수', 'RF': '우익수', 'DH': '지명타자',
+    'TWP': '투타겸업', 'O': '외야수', 'IF': '내야수', 'B': '야수'
+}
+
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
     hitter_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&playerPool=ALL&limit=1500"
     h_splits = requests.get(hitter_url).json()['stats'][0]['splits']
-    
-    # 💡 에러 원인 수정: 홈런과 타율을 다시 가져오도록 복구했습니다.
-    hitter_list = [{
-        '이름': r['player']['fullName'], 
-        '팀': r['team']['name'], 
-        '타수': r['stat'].get('atBats', 0), 
-        '홈런': r['stat'].get('homeRuns', 0),
-        '타율': r['stat'].get('avg', '.000'),
-        'OPS': r['stat'].get('ops', '.000')
-    } for r in h_splits]
-    
+    hitter_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], '타수': r['stat'].get('atBats', 0), '홈런': r['stat'].get('homeRuns', 0), '타율': r['stat'].get('avg', '.000'), 'OPS': r['stat'].get('ops', '.000')} for r in h_splits]
     df_h = pd.DataFrame(hitter_list)
     df_h['OPS'] = pd.to_numeric(df_h['OPS'], errors='coerce').fillna(0.0)
     df_h['타수'] = pd.to_numeric(df_h['타수'], errors='coerce').fillna(0)
@@ -102,13 +120,17 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
-            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b>"
-            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b>"
+            # 💡 팀 이름 한글 변환 적용
+            home_ko = TEAM_TRANSLATIONS.get(home_team, home_team)
+            away_ko = TEAM_TRANSLATIONS.get(away_team, away_team)
+
+            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_ko}</b>"
+            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_ko}</b>"
 
             games.append({
                 '경기시간(KST)': time_str, '상태': status_str,
-                '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, '홈표시': home_display,
-                '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher, '원정표시': away_display,
+                '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, '홈표시': home_display, '홈 한글': home_ko,
+                '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher, '원정표시': away_display, '원정 한글': away_ko,
                 'gamePk': game.get('gamePk')
             })
     df = pd.DataFrame(games)
@@ -125,9 +147,29 @@ def load_live_lineup(game_pk):
         if len(home_order) == 0 or len(away_order) == 0: return None, None
         h_players = res['teams']['home']['players']
         a_players = res['teams']['away']['players']
-        h_lookup = {p['person']['id']: p['person']['fullName'] for k, p in h_players.items() if 'person' in p and 'id' in p['person']}
-        a_lookup = {p['person']['id']: p['person']['fullName'] for k, p in a_players.items() if 'person' in p and 'id' in p['person']}
-        return [h_lookup.get(pid, '알수없음') for pid in home_order], [a_lookup.get(pid, '알수없음') for pid in away_order]
+        
+        # 💡 선수 데이터 추출 시 포시션 데이터도 함께 추출 및 한글 매칭
+        h_lookup = {}
+        for k, p in h_players.items():
+            if 'person' in p and 'id' in p['person']:
+                pos_code = p.get('position', {}).get('abbreviation', 'B')
+                h_lookup[p['person']['id']] = {
+                    'name': p['person']['fullName'],
+                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code)
+                }
+                
+        a_lookup = {}
+        for k, p in a_players.items():
+            if 'person' in p and 'id' in p['person']:
+                pos_code = p.get('position', {}).get('abbreviation', 'B')
+                a_lookup[p['person']['id']] = {
+                    'name': p['person']['fullName'],
+                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code)
+                }
+                
+        home_lineup = [h_lookup.get(pid, {'name': '알수없음', 'pos': '야수'}) for pid in home_order]
+        away_lineup = [a_lookup.get(pid, {'name': '알수없음', 'pos': '야수'}) for pid in away_order]
+        return home_lineup, away_lineup
     except:
         return None, None
 
@@ -170,7 +212,7 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.5 완료! (타자 스탯 누락 버그 완벽 수정)")
+    st.success("✅ V12.6 완료! (한글 패치 + 포지션 엔진 정상 작동)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -187,43 +229,58 @@ try:
             
             st.markdown(html_table, unsafe_allow_html=True)
             
-            game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
+            # 💡 선택창 드롭다운도 완벽한 한글로 나오도록 수정
+            game_options = df_schedule['홈 한글'] + " (홈) vs " + df_schedule['원정 한글'] + " (원정)"
             selected_game = st.selectbox("🔮 10,000회 정밀 시뮬레이션을 돌릴 경기를 선택하세요:", game_options)
             
             row = df_schedule[game_options == selected_game].iloc[0]
             h_team, a_team = row['홈 팀'], row['어웨이 팀 (원정)']
+            h_ko, a_ko = row['홈 한글'], row['원정 한글']
             h_id, a_id = row['홈 ID'], row['원정 ID']
             h_p, a_p = row['홈 선발투수'], row['어웨이 선발투수']
             game_pk = row['gamePk']
             
             c1, c2, c3 = st.columns([2, 1, 2])
             with c1:
-                st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{h_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **홈: {h_team}**", unsafe_allow_html=True)
+                st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{h_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **홈: {h_ko}**", unsafe_allow_html=True)
             with c2:
                 st.markdown("<h4 style='text-align: center;'>VS</h4>", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{a_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **원정: {a_team}**", unsafe_allow_html=True)
+                st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{a_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **원정: {a_ko}**", unsafe_allow_html=True)
             
             st.markdown("---")
             
             h_lineup, a_lineup = load_live_lineup(game_pk)
             if h_lineup and a_lineup:
-                st.success("✨ 실시간 선발 라인업을 기반으로 분석합니다.")
+                st.success("✨ 실시간 선발 라인업이 확정되었습니다. 포지션별 데이터를 매칭합니다.")
                 col_l1, col_l2 = st.columns(2)
                 with col_l1:
-                    for i, p in enumerate(h_lineup): st.write(f"{i+1}. {p}")
+                    st.markdown(f"**🏠 {h_ko} 선발 라인업**")
+                    for i, p in enumerate(h_lineup): 
+                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
                 with col_l2:
-                    for i, p in enumerate(a_lineup): st.write(f"{i+1}. {p}")
+                    st.markdown(f"**✈️ {a_ko} 선발 라인업**")
+                    for i, p in enumerate(a_lineup): 
+                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
                 
-                h_ops = df_hitter[df_hitter['이름'].isin(h_lineup)]['OPS'].mean() or 0.720
-                a_ops = df_hitter[df_hitter['이름'].isin(a_lineup)]['OPS'].mean() or 0.720
+                h_names = [p['name'] for p in h_lineup]
+                a_names = [p['name'] for p in a_lineup]
+                h_ops = df_hitter[df_hitter['이름'].isin(h_names)]['OPS'].mean() or 0.720
+                a_ops = df_hitter[df_hitter['이름'].isin(a_names)]['OPS'].mean() or 0.720
             else:
-                st.warning("🚨 라인업 준비중 - 주전 선수들 평균 데이터로 계산합니다.")
+                st.markdown(
+                    """
+                    <div style='text-align:center; padding: 40px; background-color:#2b2b2b; color:#ffcc00; border-radius:10px; margin: 20px 0; border: 2px dashed #ffcc00;'>
+                        <h2 style='margin:0;'>🚨 라인업 준비중 🚨</h2>
+                        <p style='margin-top:10px; color:#dddddd; font-size:16px;'>아직 선발 명단이 공식 발표되지 않았습니다.<br>(미국 현지 시간 기준, 경기 시작 2~3시간 전에 포지션과 함께 자동 표기됩니다)</p>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
                 h_ops = df_hitter[(df_hitter['팀'] == h_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
                 a_ops = df_hitter[(df_hitter['팀'] == a_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
                 
             if st.button("🚀 최종 시뮬레이션 돌리기"):
-                my_bar = st.progress(0, text="10,000경기 시뮬레이션 중...")
+                my_bar = st.progress(0, text="선발+불펜+타선 화력+구장 가중치 연산 중...")
                 for p in range(100):
                     time.sleep(0.01)
                     my_bar.progress(p + 1)
@@ -239,39 +296,42 @@ try:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"🏠 **{h_team} 전력**")
+                    st.error(f"🏠 **{h_ko} 전력 분석**")
                     h_s_era = df_pitcher[df_pitcher['이름'] == h_p]['ERA_num'].values[0] if not df_pitcher[df_pitcher['이름'] == h_p].empty else 4.50
-                    st.write(f"⚾ 선발({h_p}): **{h_s_era:.2f}** | 🛡️ 불펜: **{h_bp:.2f}**")
+                    st.write(f"⚾ 선발({h_p}): **{h_s_era:.2f}** | 🛡️ 불펜 평균 방어율: **{h_bp:.2f}**")
                     st.write(f"🔥 타선 OPS: **{h_ops:.3f}**")
-                    st.write(f"📈 최근 기세(L10): **{h_l10['str']}**")
+                    st.write(f"📈 최근 기세(Last 10): **{h_l10['str']}**")
                     
                 with col2:
-                    st.info(f"✈️ **{a_team} 전력**")
+                    st.info(f"✈️ **{a_ko} 전력 분석**")
                     a_s_era = df_pitcher[df_pitcher['이름'] == a_p]['ERA_num'].values[0] if not df_pitcher[df_pitcher['이름'] == a_p].empty else 4.50
-                    st.write(f"⚾ 선발({a_p}): **{a_s_era:.2f}** | 🛡️ 불펜: **{a_bp:.2f}**")
+                    st.write(f"⚾ 선발({a_p}): **{a_s_era:.2f}** | 🛡️ 불펜 평균 방어율: **{a_bp:.2f}**")
                     st.write(f"🔥 타선 OPS: **{a_ops:.3f}**")
-                    st.write(f"📈 최근 기세(L10): **{a_l10['str']}**")
-                
-                st.markdown(f"**🏟️ 구장 환경:** {h_team} 홈구장 (파크 팩터: **{pf}**)")
+                    st.write(f"📈 최근 기세(Last 10): **{a_l10['str']}**")
+            
+                st.markdown(f"**🏟️ 구장 환경 변수:** {h_ko} 홈구장 (파크 팩터: **{pf}**)")
                 
                 h_win, a_win, b_score, h_eff, a_eff, _ = run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp, a_bp, h_l10['rate'], a_l10['rate'], pf)
                 
                 st.markdown("---")
                 st.subheader("🏆 최종 시뮬레이션 결과 리포트")
-                st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
-                st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
-                st.warning(f"🎯 **가장 많이 나온 스코어 (홈 : 원정) -** {b_score}")
+                st.success(f"**{h_ko} (홈) 승리 확률:** {h_win:.1f}%")
+                st.info(f"**{a_ko} (원정) 승리 확률:** {a_win:.1f}%")
+                st.warning(f"🎯 **가장 많이 나온 스코어 ({h_ko} : {a_ko}) -** {b_score}")
         else:
             st.info("예정된 경기가 없습니다.")
             
     with tab2:
-        st.write("2026 시즌 전체 투수 스탯 (출장 수, 선발 등판 수 포함)")
-        st.dataframe(df_pitcher[['이름', '팀', 'ERA', '이닝', '출장', '선발']], use_container_width=True)
+        st.write("2026 시즌 전체 투수 데이터 리더보드")
+        display_pitcher = df_pitcher.copy()
+        display_pitcher['팀'] = display_pitcher['팀'].map(TEAM_TRANSLATIONS).fillna(display_pitcher['팀'])
+        st.dataframe(display_pitcher[['이름', '팀', 'ERA', '이닝', '출장', '선발']], use_container_width=True)
         
     with tab3:
-        st.write("2026 시즌 전체 타자 스탯")
-        # 💡 홈런, 타율 복구 확인 완료
-        st.dataframe(df_hitter[['이름', '팀', '타수', '홈런', '타율', 'OPS']], use_container_width=True)
+        st.write("2026 시즌 전체 타자 데이터 리더보드")
+        display_hitter = df_hitter.copy()
+        display_hitter['팀'] = display_hitter['팀'].map(TEAM_TRANSLATIONS).fillna(display_hitter['팀'])
+        st.dataframe(display_hitter[['이름', '팀', '타수', '홈런', '타율', 'OPS']], use_container_width=True)
         
 except Exception as e:
     st.error(f"오류 발생: {e}")
