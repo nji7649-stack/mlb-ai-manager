@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V9.0 (실시간 스코어 보드)")
+st.title("⚾ MLB AI 감독 모드 V10.0 (실시간 라인업 추적기)")
 
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
@@ -32,7 +32,7 @@ def load_mlb_all_data():
     
     return df_h, df_p
 
-@st.cache_data(ttl=300) # 실시간 점수 반영을 위해 데이터 갱신 주기를 5분(300초)으로 짧게 줄였습니다.
+@st.cache_data(ttl=300)
 def load_schedule(target_date):
     date_str = target_date.strftime("%Y-%m-%d")
     schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
@@ -46,7 +46,6 @@ def load_schedule(target_date):
             away_pitcher = game['teams']['away'].get('probablePitcher', {}).get('fullName', '미정(TBD)')
             home_pitcher = game['teams']['home'].get('probablePitcher', {}).get('fullName', '미정(TBD)')
             
-            # 시간 변환 (KST)
             game_time_utc = game.get('gameDate')
             if game_time_utc:
                 utc_time = datetime.strptime(game_time_utc, "%Y-%m-%dT%H:%M:%SZ")
@@ -55,29 +54,50 @@ def load_schedule(target_date):
             else:
                 time_str = "시간 미정"
                 
-            # 💡 경기 상태 및 점수 가져오기
-            status = game['status']['abstractGameState'] # Preview(예정), Live(진행중), Final(종료)
+            status = game['status']['abstractGameState']
             home_score = game['teams']['home'].get('score', 0)
             away_score = game['teams']['away'].get('score', 0)
             
-            if status == 'Final':
-                status_str = f"✅ 종료 (홈 {home_score} : {away_score} 원정)"
-            elif status == 'Live':
-                status_str = f"🔥 진행중 (홈 {home_score} : {away_score} 원정)"
-            else:
-                status_str = "⏳ 경기 예정"
+            if status == 'Final': status_str = f"✅ 종료 ({home_score}:{away_score})"
+            elif status == 'Live': status_str = f"🔥 진행중 ({home_score}:{away_score})"
+            else: status_str = "⏳ 경기 예정"
 
             games.append({
                 '경기시간(KST)': time_str,
                 '상태/결과': status_str,
                 '홈 팀': home_team, '홈 선발투수': home_pitcher, 
-                '어웨이 팀 (원정)': away_team, '어웨이 선발투수': away_pitcher
+                '어웨이 팀 (원정)': away_team, '어웨이 선발투수': away_pitcher,
+                'gamePk': game.get('gamePk') # 💡 라인업 조회를 위해 게임 고유 번호 저장
             })
             
     df = pd.DataFrame(games)
     if not df.empty:
         df = df.sort_values('경기시간(KST)').reset_index(drop=True)
     return df
+
+# 💡 실시간 선발 라인업 가져오기 (1분마다 갱신하여 확인)
+@st.cache_data(ttl=60)
+def load_live_lineup(game_pk):
+    try:
+        url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
+        res = requests.get(url).json()
+        
+        home_order = res['teams']['home'].get('battingOrder', [])
+        away_order = res['teams']['away'].get('battingOrder', [])
+        
+        # 명단이 비어있으면 아직 발표 안 된 것
+        if len(home_order) == 0 or len(away_order) == 0:
+            return None, None
+            
+        home_players = res['teams']['home']['players']
+        away_players = res['teams']['away']['players']
+        
+        home_lineup = [home_players.get(f"ID_{pid}", {}).get('person', {}).get('fullName', '알 수 없음') for pid in home_order]
+        away_lineup = [away_players.get(f"ID_{pid}", {}).get('person', {}).get('fullName', '알 수 없음') for pid in away_order]
+        
+        return home_lineup, away_lineup
+    except:
+        return None, None
 
 def run_simulation(home_era, away_era, home_ops, away_ops, num_sims=10000):
     try: h_era = float(home_era) if float(home_era) < 50 else 4.50
@@ -106,74 +126,105 @@ def run_simulation(home_era, away_era, home_ops, away_ops, num_sims=10000):
 
     return (home_wins / num_sims) * 100, (away_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0]
 
-st.write("🔄 시스템 부팅 중... 투수 및 타자 스탯을 불러옵니다.")
+st.write("🔄 메이저리그 공식 서버와 연결 중...")
 
 try:
     df_hitter, df_pitcher = load_mlb_all_data()
     
-    st.success("✅ V9.0 시스템 준비 완료! (라이브 스코어 장착)")
+    st.success("✅ V10.0 시스템 준비 완료! (실시간 라인업 추적 기능 탑재)")
     
     st.markdown("### 🗓️ 분석 날짜 선택")
     selected_date = st.date_input("미리 분석하고 싶은 경기 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
     
-    tab1, tab2, tab3 = st.tabs(["📅 경기 매치업 및 예측", "投 전체 투수 스탯", "🏃‍♂️ 전체 타자 스탯"])
+    tab1, tab2, tab3 = st.tabs(["📅 매치업 및 실시간 라인업", "投 투수 스탯", "🏃‍♂️ 타자 스탯"])
     
     with tab1:
-        st.subheader(f"[{selected_date.strftime('%Y년 %m월 %d일')}] 메이저리그 매치업")
+        st.subheader(f"[{selected_date.strftime('%Y년 %m월 %d일')}] 경기 일정")
         if not df_schedule.empty:
             
             display_df = df_schedule.set_index('경기시간(KST)')
-            # 💡 새로 추가된 '상태/결과' 컬럼을 가장 앞에 배치하여 보여줍니다.
+            # 표에서는 gamePk(고유번호)를 숨기고 보여줍니다.
             st.dataframe(display_df[['상태/결과', '홈 팀', '홈 선발투수', '어웨이 팀 (원정)', '어웨이 선발투수']], use_container_width=True)
             
             st.markdown("---")
-            st.subheader("🔮 10,000회 투타 밸런스 시뮬레이션")
+            st.subheader("📋 실시간 선발 라인업 및 승률 시뮬레이션")
             
             game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
             selected_game = st.selectbox("분석할 경기를 선택하세요:", game_options)
             
-            if st.button("🚀 10,000회 시뮬레이션 돌리기"):
-                selected_row = df_schedule[game_options == selected_game].iloc[0]
-                home_team = selected_row['홈 팀']
-                away_team = selected_row['어웨이 팀 (원정)']
-                home_p = selected_row['홈 선발투수']
-                away_p = selected_row['어웨이 선발투수']
-                game_time = selected_row['경기시간(KST)']
-                game_status = selected_row['상태/결과']
+            # 선택한 경기의 세부 정보 추출
+            selected_row = df_schedule[game_options == selected_game].iloc[0]
+            home_team, away_team = selected_row['홈 팀'], selected_row['어웨이 팀 (원정)']
+            home_p, away_p = selected_row['홈 선발투수'], selected_row['어웨이 선발투수']
+            game_time, game_status = selected_row['경기시간(KST)'], selected_row['상태/결과']
+            game_pk = selected_row['gamePk']
+            
+            # 💡 실시간 라인업 불러오기 시도
+            home_lineup, away_lineup = load_live_lineup(game_pk)
+            
+            if home_lineup and away_lineup:
+                st.success("✨ 선발 라인업이 공식 발표되었습니다! 이 명단을 바탕으로 정밀 시뮬레이션을 진행합니다.")
+                col_l1, col_l2 = st.columns(2)
+                with col_l1:
+                    st.markdown(f"**🏠 {home_team} 선발 타순**")
+                    for i, player in enumerate(home_lineup):
+                        st.write(f"{i+1}. {player}")
+                with col_l2:
+                    st.markdown(f"**✈️ {away_team} 선발 타순**")
+                    for i, player in enumerate(away_lineup):
+                        st.write(f"{i+1}. {player}")
                 
+                # 라인업이 있으므로 '해당 9명'의 평균 OPS를 정확하게 계산
+                home_hitters = df_hitter[df_hitter['이름'].isin(home_lineup)]
+                away_hitters = df_hitter[df_hitter['이름'].isin(away_lineup)]
+                home_team_ops = home_hitters['OPS'].mean() if not home_hitters.empty else 0.720
+                away_team_ops = away_hitters['OPS'].mean() if not away_hitters.empty else 0.720
+                
+            else:
+                # 라인업이 없으면 전광판 스타일의 '준비중' 배너 띄우기
+                st.markdown(
+                    """
+                    <div style='text-align:center; padding: 40px; background-color:#2b2b2b; color:#ffcc00; border-radius:10px; margin: 20px 0; border: 2px dashed #ffcc00;'>
+                        <h2 style='margin:0;'>🚨 라인업 준비중 🚨</h2>
+                        <p style='margin-top:10px; color:#dddddd; font-size:16px;'>아직 선발 명단이 공식 발표되지 않았습니다.<br>(미국 현지 시간 기준, 경기 시작 2~3시간 전에 발표됩니다)</p>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+                
+                # 라인업이 없으므로 '팀 전체 주전'의 평균 OPS로 임시 계산
                 home_hitters = df_hitter[(df_hitter['팀'] == home_team) & (df_hitter['타수'] > 100)]
                 away_hitters = df_hitter[(df_hitter['팀'] == away_team) & (df_hitter['타수'] > 100)]
                 home_team_ops = home_hitters['OPS'].mean() if not home_hitters.empty else 0.720
                 away_team_ops = away_hitters['OPS'].mean() if not away_hitters.empty else 0.720
-
-                progress_text = "투수의 방어율과 타선의 화력을 계산하여 10,000경기를 시뮬레이션 중입니다..."
+            
+            st.markdown("---")
+            if st.button("🚀 10,000회 시뮬레이션 돌리기"):
+                
+                progress_text = "전력 데이터를 기반으로 10,000경기를 가상으로 치르는 중입니다..."
                 my_bar = st.progress(0, text=progress_text)
                 for percent_complete in range(100):
                     time.sleep(0.01)
                     my_bar.progress(percent_complete + 1, text=progress_text)
                 my_bar.empty()
                 
-                # 경기 시간과 현재 상황(종료/진행중/예정)을 함께 안내합니다.
-                st.write(f"⏰ **경기 시작 시간:** 한국 시간 {game_time} | 📊 **현재 상태:** {game_status}")
-                
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"🏠 **홈:** {home_team} (선발: {home_p})")
-                    st.write(f"🔥 팀 핵심 타선 평균 OPS: **{home_team_ops:.3f}**")
+                    st.error(f"🏠 **홈:** {home_team} (투수: {home_p})")
+                    st.write(f"🔥 타선 평균 OPS: **{home_team_ops:.3f}**")
                     home_p_data = df_pitcher[df_pitcher['이름'] == home_p]
                     home_era = home_p_data['ERA'].values[0] if not home_p_data.empty else 4.50
                     
                 with col2:
-                    st.info(f"✈️ **원정:** {away_team} (선발: {away_p})")
-                    st.write(f"🔥 팀 핵심 타선 평균 OPS: **{away_team_ops:.3f}**")
+                    st.info(f"✈️ **원정:** {away_team} (투수: {away_p})")
+                    st.write(f"🔥 타선 평균 OPS: **{away_team_ops:.3f}**")
                     away_p_data = df_pitcher[df_pitcher['이름'] == away_p]
                     away_era = away_p_data['ERA'].values[0] if not away_p_data.empty else 4.50
                 
                 home_win, away_win, best_score = run_simulation(home_era, away_era, home_team_ops, away_team_ops)
                 
                 st.markdown("---")
-                st.subheader("🏆 최종 시뮬레이션 결과 리포트 (투타 종합)")
+                st.subheader("🏆 최종 시뮬레이션 결과 리포트")
                 st.success(f"**{home_team} (홈) 승리 확률:** {home_win:.1f}%")
                 st.info(f"**{away_team} (원정) 승리 확률:** {away_win:.1f}%")
                 st.warning(f"🎯 **가장 많이 나온 스코어 (홈 : 원정) -** {best_score}")
@@ -182,11 +233,9 @@ try:
             st.info(f"{selected_date.strftime('%Y년 %m월 %d일')}에는 예정된 메이저리그 경기가 없습니다.")
             
     with tab2:
-        st.write("2026 시즌 전체 투수 스탯입니다.")
         st.dataframe(df_pitcher)
         
     with tab3:
-        st.write("2026 시즌 전체 타자 스탯입니다. (홈런 순 정렬 가능)")
         st.dataframe(df_hitter)
 
 except Exception as e:
