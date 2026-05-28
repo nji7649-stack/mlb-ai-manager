@@ -10,7 +10,7 @@ import time
 st.set_page_config(page_title="글로벌 AI 스포츠 분석실", layout="wide")
 
 # ==========================================
-# 🇺🇸 MLB 전용 설정 및 함수 (V16.0 기반)
+# 🇺🇸 MLB 전용 설정 및 함수
 # ==========================================
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -242,7 +242,7 @@ def generate_ai_commentary(h_team, a_team, h_eff_fip, a_eff_fip, h_ops, a_ops, h
     return comments
 
 # ==========================================
-# 🇰🇷 KBO 전용 설정 및 함수 (V1.0 기반)
+# 🇰🇷 KBO 전용 설정 및 함수
 # ==========================================
 KBO_PARK_FACTORS = {
     '삼성 라이온즈': 1.06, 'SSG 랜더스': 1.05, '롯데 자이언츠': 1.02, 'NC 다이노스': 1.01,
@@ -297,7 +297,6 @@ st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
 league_choice = st.sidebar.radio(
     "분석할 리그를 선택하세요:", 
     ["🇺🇸 메이저리그 (MLB)", "🇰🇷 한국프로야구 (KBO)"]
-    # 추후 "🇯🇵 일본프로야구 (NPB)", "⚽ 챔피언스리그" 등을 여기에 추가 가능합니다.
 )
 
 st.sidebar.markdown("---")
@@ -330,7 +329,7 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
                 st.markdown(html_table, unsafe_allow_html=True)
                 
                 game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
-                selected_game = st.selectbox("🔮 정밀 시뮬레이션 경기 선택:", game_options)
+                selected_game = st.selectbox("🔮 정밀 시뮬레이션 경기 선택:", game_options, key="mlb_game_selector")
                 
                 row = df_schedule[game_options == selected_game].iloc[0]
                 h_team, a_team, h_id, a_id = row['홈 팀'], row['어웨이 팀 (원정)'], row['홈 ID'], row['원정 ID']
@@ -430,11 +429,13 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
 
     col1, col2 = st.columns(2)
     with col1:
-        h_team_kbo = st.selectbox("🏠 홈 팀 선택", KBO_TEAMS, index=0)
-        h_pitcher_kbo = st.selectbox(f"{h_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == h_team_kbo]['이름'].tolist())
+        # 💡 에러 방지: key 값 추가
+        h_team_kbo = st.selectbox("🏠 홈 팀 선택", KBO_TEAMS, index=0, key="kbo_h_team_select")
+        h_pitcher_kbo = st.selectbox(f"{h_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == h_team_kbo]['이름'].tolist(), key="kbo_h_pitcher_select")
     with col2:
-        a_team_kbo = st.selectbox("✈️ 원정 팀 선택", KBO_TEAMS, index=1)
-        a_pitcher_kbo = st.selectbox(f"{a_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == a_team_kbo]['이름'].tolist())
+        # 💡 에러 방지: key 값 추가
+        a_team_kbo = st.selectbox("✈️ 원정 팀 선택", KBO_TEAMS, index=1, key="kbo_a_team_select")
+        a_pitcher_kbo = st.selectbox(f"{a_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == a_team_kbo]['이름'].tolist(), key="kbo_a_pitcher_select")
 
     st.markdown("---")
 
