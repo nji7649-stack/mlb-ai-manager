@@ -7,9 +7,8 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.0 (끝판왕 예측 엔진)")
+st.title("⚾ MLB AI 감독 모드 V12.1 (디자인 완성판)")
 
-# 🏟️ 메이저리그 30개 구장 파크 팩터 (1.00이 평균, 높을수록 타자 친화/다득점 구장)
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
@@ -42,7 +41,6 @@ def load_mlb_all_data():
     
     return df_h, df_p, team_bullpen_era
 
-# 💡 최근 10경기 기세(Momentum) 데이터 불러오기
 @st.cache_data(ttl=3600)
 def load_team_momentum():
     url = "https://statsapi.mlb.com/api/v1/standings?leagueId=103,104"
@@ -73,10 +71,8 @@ def load_schedule(target_date):
         for game in res['dates'][0]['games']:
             away_team = game['teams']['away']['team']['name']
             home_team = game['teams']['home']['team']['name']
-            # 💡 구단 로고를 띄우기 위해 팀 고유 ID 추출
             away_id = game['teams']['away']['team']['id']
             home_id = game['teams']['home']['team']['id']
-            
             away_pitcher = game['teams']['away'].get('probablePitcher', {}).get('fullName', '미정(TBD)')
             home_pitcher = game['teams']['home'].get('probablePitcher', {}).get('fullName', '미정(TBD)')
             
@@ -94,11 +90,13 @@ def load_schedule(target_date):
             
             if status == 'Final': status_str = f"✅ 종료 ({h_score}:{a_score})"
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
-            else: status_str = "⏳ 경기 예정"
+            else: status_str = "⏳ 예정"
 
             games.append({
-                '경기시간(KST)': time_str, '상태/결과': status_str,
+                '경기시간(KST)': time_str, '상태': status_str,
+                '홈 로고': f"https://www.mlbstatic.com/team-logos/{home_id}.svg", # 💡 표에 들어갈 홈 로고
                 '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, 
+                '원정 로고': f"https://www.mlbstatic.com/team-logos/{away_id}.svg", # 💡 표에 들어갈 원정 로고
                 '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher,
                 'gamePk': game.get('gamePk')
             })
@@ -122,7 +120,6 @@ def load_live_lineup(game_pk):
     except:
         return None, None
 
-# 💡 구장 효과와 기세(L10)가 추가된 궁극의 시뮬레이터
 def run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp_era, a_bp_era, h_l10_rate, a_l10_rate, park_factor, num_sims=10000):
     try: h_s_era = float(h_s_era) if float(h_s_era) < 50 else 4.50
     except: h_s_era = 4.50
@@ -132,14 +129,12 @@ def run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp_era, a_bp_era, h_l10_rat
     h_eff_era = (h_s_era * 0.6) + (h_bp_era * 0.4)
     a_eff_era = (a_s_era * 0.6) + (a_bp_era * 0.4)
 
-    # 최근 10경기 승률 기반 화력 가중치 (최대 ±5% 버프/너프)
     h_momentum = 1.0 + (h_l10_rate - 0.5) * 0.1
     a_momentum = 1.0 + (a_l10_rate - 0.5) * 0.1
 
     h_attack = (h_ops / 0.720) * h_momentum if h_ops > 0 else 1.0 * h_momentum
     a_attack = (a_ops / 0.720) * a_momentum if a_ops > 0 else 1.0 * a_momentum
 
-    # 구장 효과(Park Factor) 적용
     h_expected_runs = ((a_eff_era * h_attack) + 0.2) * park_factor
     a_expected_runs = (h_eff_era * a_attack) * park_factor
 
@@ -164,17 +159,25 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.0 완료! (팀 로고 / 최근 10경기 기세 / 구장 효과 탑재)")
+    st.success("✅ V12.1 완료! (미니 로고 및 표 안의 로고 기능 적용)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
     
     if not df_schedule.empty:
-        # 일정표 화면
-        st.dataframe(df_schedule[['경기시간(KST)', '상태/결과', '홈 팀', '홈 선발투수', '어웨이 팀 (원정)', '어웨이 선발투수']].set_index('경기시간(KST)'), use_container_width=True)
+        # 💡 일정표에 로고를 포함시켜 출력 (Streamlit의 column_config 기능 사용)
+        display_df = df_schedule.set_index('경기시간(KST)')
+        st.dataframe(
+            display_df[['상태', '홈 로고', '홈 팀', '홈 선발투수', '원정 로고', '어웨이 팀 (원정)', '어웨이 선발투수']],
+            column_config={
+                "홈 로고": st.column_config.ImageColumn("로고"),
+                "원정 로고": st.column_config.ImageColumn("로고")
+            },
+            use_container_width=True
+        )
+        
         st.markdown("---")
         
-        # 분석 게임 선택
         game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
         selected_game = st.selectbox("🔮 10,000회 정밀 시뮬레이션을 돌릴 경기를 선택하세요:", game_options)
         
@@ -184,20 +187,17 @@ try:
         h_p, a_p = row['홈 선발투수'], row['어웨이 선발투수']
         game_pk = row['gamePk']
         
-        # 💡 팀 로고와 매치업 출력
+        # 💡 텍스트와 딱 맞는 크기의 인라인(Inline) 로고 출력
         c1, c2, c3 = st.columns([2, 1, 2])
         with c1:
-            st.image(f"https://www.mlbstatic.com/team-logos/{h_id}.svg", width=80)
-            st.subheader(f"🏠 홈: {h_team}")
+            st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{h_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **홈: {h_team}**", unsafe_allow_html=True)
         with c2:
-            st.markdown("<h1 style='text-align: center; margin-top:20px;'>VS</h1>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align: center;'>VS</h4>", unsafe_allow_html=True)
         with c3:
-            st.image(f"https://www.mlbstatic.com/team-logos/{a_id}.svg", width=80)
-            st.subheader(f"✈️ 원정: {a_team}")
+            st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{a_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **원정: {a_team}**", unsafe_allow_html=True)
         
         st.markdown("---")
         
-        # 라인업 불러오기
         h_lineup, a_lineup = load_live_lineup(game_pk)
         if h_lineup and a_lineup:
             st.success("✨ 실시간 선발 라인업을 기반으로 분석합니다.")
@@ -227,7 +227,6 @@ try:
             h_l10 = momentum_dict.get(h_team, {'rate': 0.5, 'str': '5승 5패'})
             a_l10 = momentum_dict.get(a_team, {'rate': 0.5, 'str': '5승 5패'})
             
-            # 해당 홈팀 구장의 파크팩터 추출 (없으면 평균 1.00)
             pf = PARK_FACTORS.get(h_team, 1.00)
             
             col1, col2 = st.columns(2)
