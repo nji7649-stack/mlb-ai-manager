@@ -38,7 +38,7 @@ def load_mlb_all_data():
         pitcher_list.append({
             '이름': row['player']['fullName'], '팀': row['team']['name'],
             '승': s.get('wins', 0), '패': s.get('losses', 0),
-            '세이브': s.get('saves', 0), '평균자책점(ERA)': s.get('era', '0.00'),
+            '세이브': s.get('saves', 0), '평균자책점(ERA)': s.get('era', '99.99'),
             '경기': s.get('gamesPlayed', 0), '선발': s.get('gamesStarted', 0),
             '이닝': s.get('inningsPitched', '0.0'), '피안타': s.get('hits', 0),
             '실점': s.get('runs', 0), '자책점': s.get('earnedRuns', 0),
@@ -63,9 +63,10 @@ try:
         
     with tab2:
         st.subheader("📋 2026 시즌 투수 데이터 리더보드")
-        # 방어율 순으로 정렬 (이닝을 어느 정도 던진 투수 기준)
-        df_pitcher['평균자책점(ERA)'] = pd.to_numeric(df_pitcher['평균자책점(ERA)'])
-        df_pitcher = df_pitcher.sort_values(by='평균자책점(ERA)').reset_index(drop=True)
+        # 에러 방지: 숫자가 아닌 값(-.-- 등)을 강제로 NaN(빈값)으로 만들고 99.99로 채우기
+        df_pitcher['평균자책점(ERA)'] = pd.to_numeric(df_pitcher['평균자책점(ERA)'], errors='coerce').fillna(99.99)
+        # 규정이닝이나 선발 등판 기록이 있는 선수를 위주로 정렬하기 위해 선발 경기 수 내림차순 정렬
+        df_pitcher = df_pitcher.sort_values(by='선발', ascending=False).reset_index(drop=True)
         st.dataframe(df_pitcher)
         
 except Exception as e:
