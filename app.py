@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, date, timedelta
 import random
 from collections import Counter
@@ -10,7 +9,7 @@ import time
 st.set_page_config(page_title="글로벌 AI 스포츠 분석실", layout="wide")
 
 # ==========================================
-# 🇺🇸 MLB 전용 설정 및 함수 (V16.0 유지)
+# 🇺🇸 MLB 전용 설정 및 함수
 # ==========================================
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -242,7 +241,7 @@ def generate_ai_commentary(h_team, a_team, h_eff_fip, a_eff_fip, h_ops, a_ops, h
     return comments
 
 # ==========================================
-# 🇰🇷 KBO 전용 설정 및 자동 크롤링 봇 (V17.0)
+# 🇰🇷 KBO 전용 설정 및 함수
 # ==========================================
 KBO_PARK_FACTORS = {
     '삼성': 1.06, 'SSG': 1.05, '롯데': 1.02, 'NC': 1.01,
@@ -251,44 +250,40 @@ KBO_PARK_FACTORS = {
 }
 KBO_TEAMS = list(KBO_PARK_FACTORS.keys())
 
-# 💡 스탯티즈/KBO 공식 웹사이트 크롤링 봇 (12시간 캐싱 적용으로 IP 차단 방지)
-@st.cache_data(ttl=43200) 
-def run_kbo_crawling_bot():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+def process_kbo_data(df_h, df_p):
+    # KBO CSV 파일에 필수 컬럼이 없을 경우를 대비한 튼튼한 방어 코드
+    if 'OPS' not in df_h.columns: df_h['OPS'] = 0.740
+    if '타수' not in df_h.columns: df_h['타수'] = 100
     
-    try:
-        # 실제 환경에서는 스탯티즈나 네이버 스포츠 기록실 URL을 사용합니다.
-        # 예시: response = requests.get('https://statiz.sporki.com/stats/?m=main&m2=batting...', headers=headers)
-        # 🚨 주의: 크롤링 타겟 사이트의 DOM 구조가 변경되면 아래의 파싱 로직을 수정해야 합니다.
-        
-        # ---------------------------------------------------------
-        # [봇 시뮬레이션 로직] 
-        # 타겟 사이트 접속 지연 및 구조 변경 대비 가상 방어벽
-        # ---------------------------------------------------------
-        time.sleep(1) # 접속 지연 흉내
-        
-        # 웹 크롤링이 실패하거나 차단되었을 때를 대비한 'Graceful Fallback (안전망)' 코드
-        # 실제 개발 환경에서 크롤링이 막혔을 경우 앱이 다운되지 않고 이 임시 데이터를 반환합니다.
-        pitchers, hitters = [], []
-        for team in KBO_TEAMS:
-            pitchers.append({'이름': f'{team} 1선발', '팀': team, 'ERA': round(random.uniform(2.5, 4.0), 2), 'FIP': round(random.uniform(2.8, 4.2), 2), '평균이닝': random.uniform(5.5, 6.5)})
-            pitchers.append({'이름': f'{team} 2선발', '팀': team, 'ERA': round(random.uniform(3.5, 5.0), 2), 'FIP': round(random.uniform(3.8, 5.2), 2), '평균이닝': random.uniform(4.5, 6.0)})
-            pitchers.append({'이름': f'{team} 3선발', '팀': team, 'ERA': round(random.uniform(4.0, 5.5), 2), 'FIP': round(random.uniform(4.2, 5.5), 2), '평균이닝': random.uniform(4.0, 5.5)})
-            for i in range(1, 10):
-                hitters.append({'이름': f'{team} {i}번타자', '팀': team, 'OPS': round(random.uniform(0.650, 0.950), 3), 'batSide': random.choice(['L', 'R'])})
-                
-        df_p = pd.DataFrame(pitchers)
-        df_h = pd.DataFrame(hitters)
-        team_bp_fip = {team: round(random.uniform(3.8, 5.5), 2) for team in KBO_TEAMS}
-        
-        return df_h, df_p, team_bp_fip, True # True는 안전망(Fallback) 가동 상태를 의미함
-
-    except Exception as e:
-        # 크롤링 완전 실패 시 빈 데이터 반환 방지
-        st.error(f"크롤링 봇 연결 실패: {e}")
-        return pd.DataFrame(), pd.DataFrame(), {}, False
+    if 'ERA' not in df_p.columns: df_p['ERA'] = 4.50
+    if '선발' not in df_p.columns: df_p['선발'] = 0
+    if '출장' not in df_p.columns: df_p['출장'] = 1
+    
+    # 이닝 처리 방어 코드
+    if '이닝' not in df_p.columns: df_p['이닝'] = 10.0
+    df_p['이닝_num'] = pd.to_numeric(df_p['이닝'], errors='coerce').fillna(1.0)
+    
+    # FIP 및 평균이닝 자동 연산 (CSV에 없으면 자동 계산)
+    if '평균이닝' not in df_p.columns:
+        df_p['평균이닝'] = df_p.apply(lambda x: x['이닝_num'] / x['선발'] if x['선발'] > 0 else 4.0, axis=1).clip(3.0, 7.5)
+    
+    if 'FIP' not in df_p.columns:
+        # 피홈런, 볼넷, 탈삼진 데이터가 있으면 계산하고, 없으면 ERA를 FIP로 대체
+        if all(col in df_p.columns for col in ['피홈런', '볼넷', '탈삼진']):
+            df_p['FIP'] = df_p.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['이닝_num']) + 3.10 if x['이닝_num'] > 0 else x['ERA'], axis=1)
+        else:
+            df_p['FIP'] = df_p['ERA']
+            
+    # 불펜 FIP 추출
+    df_bullpen = df_p[(df_p['출장'] > df_p['선발']) & (df_p['이닝_num'] >= 10.0)]
+    team_bp_fip = df_bullpen.groupby('팀')['FIP'].mean().to_dict()
+    
+    # 불펜 데이터가 부족한 팀은 전체 평균 4.50으로 세팅
+    for team in KBO_TEAMS:
+        if team not in team_bp_fip or pd.isna(team_bp_fip[team]):
+            team_bp_fip[team] = 4.50
+            
+    return df_h, df_p, team_bp_fip
 
 def run_kbo_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, park_factor, num_sims=10000):
     h_starter_weight = h_avg_ip / 9.0
@@ -325,7 +320,15 @@ league_choice = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("해외 야구는 크롬의 '한국어로 번역' 기능을 켜시면 더욱 쾌적하게 이용할 수 있습니다.")
+
+# KBO 모드일 때만 엑셀 업로드 창 노출
+if league_choice == "🇰🇷 한국프로야구 (KBO)":
+    st.sidebar.subheader("📊 KBO 데이터 업데이트 (CSV)")
+    kbo_h_file = st.sidebar.file_uploader("타자 기록 업로드 (CSV)", type=['csv'])
+    kbo_p_file = st.sidebar.file_uploader("투수 기록 업로드 (CSV)", type=['csv'])
+    st.sidebar.caption("※ '팀', '이름', 'OPS'(타자), 'ERA', '이닝', '출장', '선발'(투수) 컬럼이 포함되어야 합니다.")
+else:
+    st.sidebar.info("해외 야구는 크롬의 '한국어로 번역' 기능을 켜시면 더욱 쾌적하게 이용할 수 있습니다.")
 
 # ==========================================
 # 🇺🇸 MLB 모드 렌더링
@@ -426,67 +429,82 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
 # 🇰🇷 KBO 모드 렌더링
 # ==========================================
 elif league_choice == "🇰🇷 한국프로야구 (KBO)":
-    st.header("🇰🇷 KBO AI 감독 모드 (자동 크롤링 봇)")
+    st.header("🇰🇷 KBO AI 감독 모드 (CSV 직접 연동)")
     
-    with st.spinner("🤖 웹 크롤링 봇이 KBO 기록실에서 실시간 데이터를 수집 중입니다... (최대 10초 소요)"):
-        df_h_kbo, df_p_kbo, bp_fip_dict_kbo, is_fallback = run_kbo_crawling_bot()
-        
-    if is_fallback:
-        st.warning("⚠️ **크롤링 봇 우회 모드 가동 중:** 현재 타겟 웹사이트의 보안 차단으로 인해 크롤러가 '안전 모드(시뮬레이터용 임시 데이터)'로 우회하여 구동 중입니다. (향후 CSS 셀렉터 업데이트가 필요합니다)")
-    else:
-        st.success("✅ 크롤링 성공! (최신 KBO 데이터베이스를 12시간 동안 캐싱합니다)")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        h_team_kbo = st.selectbox("🏠 홈 팀 선택", KBO_TEAMS, index=0, key="kbo_h_team_select")
-        h_pitcher_kbo = st.selectbox(f"{h_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == h_team_kbo]['이름'].tolist(), key="kbo_h_pitcher_select")
-    with col2:
-        a_team_kbo = st.selectbox("✈️ 원정 팀 선택", KBO_TEAMS, index=1, key="kbo_a_team_select")
-        a_pitcher_kbo = st.selectbox(f"{a_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == a_team_kbo]['이름'].tolist(), key="kbo_a_pitcher_select")
-
-    st.markdown("---")
-
-    if st.button("🚀 KBO 매치업 시뮬레이션 돌리기"):
-        my_bar = st.progress(0, text="대구/잠실 등 구장 파크팩터를 적용하여 연산 중...")
-        for p in range(100):
-            time.sleep(0.01)
-            my_bar.progress(p + 1)
-        my_bar.empty()
-        
-        h_ops_k = df_h_kbo[df_h_kbo['팀'] == h_team_kbo]['OPS'].mean()
-        a_ops_k = df_h_kbo[df_h_kbo['팀'] == a_team_kbo]['OPS'].mean()
-        h_s_fip_k = df_p_kbo[df_p_kbo['이름'] == h_pitcher_kbo]['FIP'].values[0]
-        h_s_ip_k = df_p_kbo[df_p_kbo['이름'] == h_pitcher_kbo]['평균이닝'].values[0]
-        h_bp_k = bp_fip_dict_kbo[h_team_kbo]
-        
-        a_s_fip_k = df_p_kbo[df_p_kbo['이름'] == a_pitcher_kbo]['FIP'].values[0]
-        a_s_ip_k = df_p_kbo[df_p_kbo['이름'] == a_pitcher_kbo]['평균이닝'].values[0]
-        a_bp_k = bp_fip_dict_kbo[a_team_kbo]
-        
-        pf_k = KBO_PARK_FACTORS[h_team_kbo]
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.error(f"🏠 **{h_team_kbo} 전력**")
-            st.write(f"⚾ 선발 FIP: **{h_s_fip_k:.2f}** | 🔋 평균 소화 이닝: **{h_s_ip_k:.1f}회**")
-            st.write(f"🛡️ 팀 불펜 FIP: **{h_bp_k:.2f}** | 🔥 타선 평균 OPS: **{h_ops_k:.3f}**")
-        with c2:
-            st.info(f"✈️ **{a_team_kbo} 전력**")
-            st.write(f"⚾ 선발 FIP: **{a_s_fip_k:.2f}** | 🔋 평균 소화 이닝: **{a_s_ip_k:.1f}회**")
-            st.write(f"🛡️ 팀 불펜 FIP: **{a_bp_k:.2f}** | 🔥 타선 평균 OPS: **{a_ops_k:.3f}**")
+    if kbo_h_file is not None and kbo_p_file is not None:
+        try:
+            raw_h_df = pd.read_csv(kbo_h_file)
+            raw_p_df = pd.read_csv(kbo_p_file)
             
-        st.markdown(f"**🏟️ 구장 환경 변수:** {h_team_kbo} 홈구장 (KBO 파크 팩터: **{pf_k}**)")
-        
-        h_win_k, a_win_k, top3_scores_k = run_kbo_simulation(h_s_fip_k, a_s_fip_k, h_s_ip_k, a_s_ip_k, h_ops_k, a_ops_k, h_bp_k, a_bp_k, pf_k)
-        
-        st.markdown("---")
-        st.subheader("🏆 KBO 세이버메트릭스 최종 리포트")
-        col_res1, col_res2 = st.columns(2)
-        with col_res1:
-            st.success(f"**{h_team_kbo} (홈) 승리 확률:** {h_win_k:.1f}%")
-            st.info(f"**{a_team_kbo} (원정) 승리 확률:** {a_win_k:.1f}%")
-        with col_res2:
-            st.warning(f"🎯 **가장 많이 나온 예상 스코어 TOP 3**")
-            st.write(f"🥇 1순위: **{top3_scores_k[0][0]} ({top3_scores_k[0][1]/100:.1f}%)**")
-            st.write(f"🥈 2순위: **{top3_scores_k[1][0]} ({top3_scores_k[1][1]/100:.1f}%)**")
-            st.write(f"🥉 3순위: **{top3_scores_k[2][0]} ({top3_scores_k[2][1]/100:.1f}%)**")
+            df_h_kbo, df_p_kbo, bp_fip_dict_kbo = process_kbo_data(raw_h_df, raw_p_df)
+            st.success("✅ KBO 데이터가 성공적으로 분석실에 동기화되었습니다!")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                h_team_kbo = st.selectbox("🏠 홈 팀 선택", KBO_TEAMS, index=0, key="kbo_h_team_select")
+                h_pitcher_kbo = st.selectbox(f"{h_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == h_team_kbo]['이름'].tolist(), key="kbo_h_pitcher_select")
+            with col2:
+                a_team_kbo = st.selectbox("✈️ 원정 팀 선택", KBO_TEAMS, index=1, key="kbo_a_team_select")
+                a_pitcher_kbo = st.selectbox(f"{a_team_kbo} 선발 투수", df_p_kbo[df_p_kbo['팀'] == a_team_kbo]['이름'].tolist(), key="kbo_a_pitcher_select")
+
+            st.markdown("---")
+
+            if st.button("🚀 KBO 매치업 시뮬레이션 돌리기"):
+                my_bar = st.progress(0, text="대구/잠실 등 구장 파크팩터를 적용하여 연산 중...")
+                for p in range(100):
+                    time.sleep(0.01)
+                    my_bar.progress(p + 1)
+                my_bar.empty()
+                
+                h_ops_k = df_h_kbo[df_h_kbo['팀'] == h_team_kbo]['OPS'].mean()
+                a_ops_k = df_h_kbo[df_h_kbo['팀'] == a_team_kbo]['OPS'].mean()
+                
+                h_s_fip_k = df_p_kbo[df_p_kbo['이름'] == h_pitcher_kbo]['FIP'].values[0]
+                h_s_ip_k = df_p_kbo[df_p_kbo['이름'] == h_pitcher_kbo]['평균이닝'].values[0]
+                h_bp_k = bp_fip_dict_kbo[h_team_kbo]
+                
+                a_s_fip_k = df_p_kbo[df_p_kbo['이름'] == a_pitcher_kbo]['FIP'].values[0]
+                a_s_ip_k = df_p_kbo[df_p_kbo['이름'] == a_pitcher_kbo]['평균이닝'].values[0]
+                a_bp_k = bp_fip_dict_kbo[a_team_kbo]
+                
+                pf_k = KBO_PARK_FACTORS[h_team_kbo]
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.error(f"🏠 **{h_team_kbo} 전력**")
+                    st.write(f"⚾ 선발 FIP: **{h_s_fip_k:.2f}** | 🔋 평균 소화 이닝: **{h_s_ip_k:.1f}회**")
+                    st.write(f"🛡️ 팀 불펜 FIP: **{h_bp_k:.2f}** | 🔥 타선 평균 OPS: **{h_ops_k:.3f}**")
+                with c2:
+                    st.info(f"✈️ **{a_team_kbo} 전력**")
+                    st.write(f"⚾ 선발 FIP: **{a_s_fip_k:.2f}** | 🔋 평균 소화 이닝: **{a_s_ip_k:.1f}회**")
+                    st.write(f"🛡️ 팀 불펜 FIP: **{a_bp_k:.2f}** | 🔥 타선 평균 OPS: **{a_ops_k:.3f}**")
+                    
+                st.markdown(f"**🏟️ 구장 환경 변수:** {h_team_kbo} 홈구장 (KBO 파크 팩터: **{pf_k}**)")
+                
+                h_win_k, a_win_k, top3_scores_k = run_kbo_simulation(h_s_fip_k, a_s_fip_k, h_s_ip_k, a_s_ip_k, h_ops_k, a_ops_k, h_bp_k, a_bp_k, pf_k)
+                
+                st.markdown("---")
+                st.subheader("🏆 KBO 세이버메트릭스 최종 리포트")
+                col_res1, col_res2 = st.columns(2)
+                with col_res1:
+                    st.success(f"**{h_team_kbo} (홈) 승리 확률:** {h_win_k:.1f}%")
+                    st.info(f"**{a_team_kbo} (원정) 승리 확률:** {a_win_k:.1f}%")
+                with col_res2:
+                    st.warning(f"🎯 **가장 많이 나온 예상 스코어 TOP 3**")
+                    st.write(f"🥇 1순위: **{top3_scores_k[0][0]} ({top3_scores_k[0][1]/100:.1f}%)**")
+                    st.write(f"🥈 2순위: **{top3_scores_k[1][0]} ({top3_scores_k[1][1]/100:.1f}%)**")
+                    st.write(f"🥉 3순위: **{top3_scores_k[2][0]} ({top3_scores_k[2][1]/100:.1f}%)**")
+
+        except Exception as e:
+            st.error(f"CSV 파일 포맷 오류: {e}")
+            st.info("파일 양식이 올바른지 확인해 주세요. ('팀', '이름', 'OPS', 'ERA', '이닝' 등)")
+            
+    else:
+        st.markdown(
+            """
+            <div style='text-align:center; padding: 40px; background-color:#2b2b2b; color:#ffcc00; border-radius:10px; margin: 20px 0; border: 2px dashed #ffcc00;'>
+                <h2 style='margin:0;'>📂 KBO 데이터를 업로드해 주세요!</h2>
+                <p style='margin-top:10px; color:#dddddd; font-size:16px;'>좌측 사이드바에서 타자와 투수의 최신 기록(CSV 파일)을 업로드하면 곧바로 분석실이 가동됩니다.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
