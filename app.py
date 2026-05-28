@@ -7,9 +7,8 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.9 (하이브리드 번역 최적화)")
+st.title("⚾ MLB AI 감독 모드 V13.0 (세부 스탯 리더보드 확장판)")
 
-# 🏟️ 메이저리그 30개 구장 파크 팩터
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
@@ -21,7 +20,6 @@ PARK_FACTORS = {
     'San Diego Padres': 0.94, 'Seattle Mariners': 0.93
 }
 
-# 📋 포지션 약자는 구글 번역기가 오역하므로 코드 내부에서 한글로 고정
 POSITION_TRANSLATIONS = {
     'P': '투수', 'C': '포수', '1B': '1루수', '2B': '2루수', '3B': '3루수',
     'SS': '유격수', 'LF': '좌익수', 'CF': '중견수', 'RF': '우익수', 'DH': '지명타자',
@@ -31,16 +29,35 @@ POSITION_TRANSLATIONS = {
 
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
+    # 💡 타자 세부 스탯 대거 추가 추출
     hitter_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&playerPool=ALL&limit=1500"
     h_splits = requests.get(hitter_url).json()['stats'][0]['splits']
-    hitter_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], '타수': r['stat'].get('atBats', 0), '홈런': r['stat'].get('homeRuns', 0), '타율': r['stat'].get('avg', '.000'), 'OPS': r['stat'].get('ops', '.000')} for r in h_splits]
+    hitter_list = [{
+        '이름': r['player']['fullName'], '팀': r['team']['name'], 
+        '타수': r['stat'].get('atBats', 0), '안타': r['stat'].get('hits', 0),
+        '2루타': r['stat'].get('doubles', 0), '3루타': r['stat'].get('triples', 0),
+        '홈런': r['stat'].get('homeRuns', 0), '타점': r['stat'].get('rbi', 0),
+        '득점': r['stat'].get('runs', 0), '볼넷': r['stat'].get('baseOnBalls', 0),
+        '삼진': r['stat'].get('strikeOuts', 0), '도루': r['stat'].get('stolenBases', 0),
+        '타율': r['stat'].get('avg', '.000'), '출루율': r['stat'].get('obp', '.000'),
+        '장타율': r['stat'].get('slg', '.000'), 'OPS': r['stat'].get('ops', '.000')
+    } for r in h_splits]
     df_h = pd.DataFrame(hitter_list)
     df_h['OPS'] = pd.to_numeric(df_h['OPS'], errors='coerce').fillna(0.0)
     df_h['타수'] = pd.to_numeric(df_h['타수'], errors='coerce').fillna(0)
     
+    # 💡 투수 세부 스탯 대거 추가 추출
     pitcher_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&gameType=R&season=2026&playerPool=ALL&limit=1500"
     p_splits = requests.get(pitcher_url).json()['stats'][0]['splits']
-    pitcher_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], 'ERA': r['stat'].get('era', '99.99'), '이닝': r['stat'].get('inningsPitched', '0.0'), '출장': r['stat'].get('gamesPlayed', 0), '선발': r['stat'].get('gamesStarted', 0)} for r in p_splits]
+    pitcher_list = [{
+        '이름': r['player']['fullName'], '팀': r['team']['name'], 
+        '승': r['stat'].get('wins', 0), '패': r['stat'].get('losses', 0),
+        '세이브': r['stat'].get('saves', 0), '출장': r['stat'].get('gamesPlayed', 0), 
+        '선발': r['stat'].get('gamesStarted', 0), '이닝': r['stat'].get('inningsPitched', '0.0'),
+        '피안타율': r['stat'].get('avg', '.000'), 'WHIP': r['stat'].get('whip', '0.00'),
+        '탈삼진': r['stat'].get('strikeOuts', 0), '볼넷': r['stat'].get('baseOnBalls', 0),
+        'ERA': r['stat'].get('era', '99.99')
+    } for r in p_splits]
     df_p = pd.DataFrame(pitcher_list)
     df_p['ERA_num'] = pd.to_numeric(df_p['ERA'], errors='coerce').fillna(4.50)
     df_p['이닝_num'] = pd.to_numeric(df_p['이닝'], errors='coerce').fillna(0.0)
@@ -101,7 +118,6 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
-            # 💡 크롬 번역기가 원활히 번역하도록 순수 영어 이름을 사용합니다.
             home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b>"
             away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b>"
 
@@ -189,7 +205,7 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.9 완료! (크롬 브라우저 번역기 최적화 완료)")
+    st.success("✅ V13.0 완료! (타자/투수 세부 스탯 리더보드 대규모 확장)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -297,12 +313,12 @@ try:
             st.info("예정된 경기가 없습니다.")
             
     with tab2:
-        st.write("2026 시즌 전체 투수 데이터 리더보드")
-        st.dataframe(df_pitcher[['이름', '팀', 'ERA', '이닝', '출장', '선발']], use_container_width=True)
+        st.write("2026 시즌 전체 투수 세부 스탯 (가로 스크롤을 넘겨보세요)")
+        st.dataframe(df_pitcher[['이름', '팀', 'ERA', '승', '패', '세이브', '출장', '선발', '이닝', '탈삼진', '볼넷', 'WHIP', '피안타율']], use_container_width=True)
         
     with tab3:
-        st.write("2026 시즌 전체 타자 데이터 리더보드")
-        st.dataframe(df_hitter[['이름', '팀', '타수', '홈런', '타율', 'OPS']], use_container_width=True)
+        st.write("2026 시즌 전체 타자 세부 스탯 (가로 스크롤을 넘겨보세요)")
+        st.dataframe(df_hitter[['이름', '팀', '타수', '안타', '2루타', '3루타', '홈런', '타점', '득점', '볼넷', '삼진', '도루', '타율', '출루율', '장타율', 'OPS']], use_container_width=True)
         
 except Exception as e:
     st.error(f"오류 발생: {e}")
