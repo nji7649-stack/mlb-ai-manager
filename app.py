@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.3 (최종 복구판)")
+st.title("⚾ MLB AI 감독 모드 V12.4 (일정표 버그 완벽 수정)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -92,7 +92,6 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
-            # 💡 표출용 문자열 조립 (팀 이름 옆에 로고 이미지 삽입)
             home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b>"
             away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b>"
 
@@ -161,47 +160,24 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.3 완료! (전체화면 일정표 복구 & 탭 기능 복구)")
+    st.success("✅ V12.4 완료! (일정표 100% 크기 복구 및 코드 노출 버그 수정)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
     
-    # 💡 누락되었던 탭 복구
     tab1, tab2, tab3 = st.tabs(["📅 매치업 및 실시간 라인업", "投 전체 투수 스탯", "🏃‍♂️ 전체 타자 스탯"])
     
     with tab1:
         if not df_schedule.empty:
-            # 💡 일정표를 100% 꽉 찬 HTML 표로 렌더링
-            html_table = """
-            <table style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
-                <thead>
-                    <tr style="border-bottom: 2px solid #555; text-align: left;">
-                        <th style="padding: 10px;">경기시간(KST)</th>
-                        <th style="padding: 10px;">상태</th>
-                        <th style="padding: 10px;">홈 팀</th>
-                        <th style="padding: 10px;">홈 선발투수</th>
-                        <th style="padding: 10px;">어웨이 팀 (원정)</th>
-                        <th style="padding: 10px;">어웨이 선발투수</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
+            # 💡 줄바꿈과 띄어쓰기를 최소화하여 마크다운 코드 블록 오류를 원천 차단한 HTML 표 생성
+            html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
+            html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀</th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정)</th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
             for _, row in df_schedule.iterrows():
-                html_table += f"""
-                    <tr style="border-bottom: 1px solid #333;">
-                        <td style="padding: 10px;">{row['경기시간(KST)']}</td>
-                        <td style="padding: 10px;">{row['상태']}</td>
-                        <td style="padding: 10px;">{row['홈표시']}</td>
-                        <td style="padding: 10px;">{row['홈 선발투수']}</td>
-                        <td style="padding: 10px;">{row['원정표시']}</td>
-                        <td style="padding: 10px;">{row['어웨이 선발투수']}</td>
-                    </tr>
-                """
-            html_table += "</tbody></table>"
+                html_table += f"<tr style='border-bottom: 1px solid #333;'><td style='padding: 10px;'>{row['경기시간(KST)']}</td><td style='padding: 10px;'>{row['상태']}</td><td style='padding: 10px; text-align: left;'>{row['홈표시']}</td><td style='padding: 10px;'>{row['홈 선발투수']}</td><td style='padding: 10px; text-align: left;'>{row['원정표시']}</td><td style='padding: 10px;'>{row['어웨이 선발투수']}</td></tr>"
+            html_table += "</table>"
             
             st.markdown(html_table, unsafe_allow_html=True)
             
-            # 선택창은 순수 텍스트만 사용
             game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
             selected_game = st.selectbox("🔮 10,000회 정밀 시뮬레이션을 돌릴 경기를 선택하세요:", game_options)
             
