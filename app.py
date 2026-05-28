@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V13.0 (세부 스탯 리더보드 확장판)")
+st.title("⚾ MLB AI 감독 모드 V14.0 (세이버메트릭스 완전체)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -29,7 +29,6 @@ POSITION_TRANSLATIONS = {
 
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
-    # 💡 타자 세부 스탯 대거 추가 추출
     hitter_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&playerPool=ALL&limit=1500"
     h_splits = requests.get(hitter_url).json()['stats'][0]['splits']
     hitter_list = [{
@@ -46,7 +45,6 @@ def load_mlb_all_data():
     df_h['OPS'] = pd.to_numeric(df_h['OPS'], errors='coerce').fillna(0.0)
     df_h['타수'] = pd.to_numeric(df_h['타수'], errors='coerce').fillna(0)
     
-    # 💡 투수 세부 스탯 대거 추가 추출
     pitcher_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&gameType=R&season=2026&playerPool=ALL&limit=1500"
     p_splits = requests.get(pitcher_url).json()['stats'][0]['splits']
     pitcher_list = [{
@@ -56,16 +54,20 @@ def load_mlb_all_data():
         '선발': r['stat'].get('gamesStarted', 0), '이닝': r['stat'].get('inningsPitched', '0.0'),
         '피안타율': r['stat'].get('avg', '.000'), 'WHIP': r['stat'].get('whip', '0.00'),
         '탈삼진': r['stat'].get('strikeOuts', 0), '볼넷': r['stat'].get('baseOnBalls', 0),
-        'ERA': r['stat'].get('era', '99.99')
+        '피홈런': r['stat'].get('homeRuns', 0), 'ERA': r['stat'].get('era', '99.99')
     } for r in p_splits]
     df_p = pd.DataFrame(pitcher_list)
     df_p['ERA_num'] = pd.to_numeric(df_p['ERA'], errors='coerce').fillna(4.50)
     df_p['이닝_num'] = pd.to_numeric(df_p['이닝'], errors='coerce').fillna(0.0)
     
-    df_bullpen = df_p[(df_p['출장'] > df_p['선발']) & (df_p['이닝_num'] >= 5.0)]
-    team_bullpen_era = df_bullpen.groupby('팀')['ERA_num'].mean().to_dict()
+    # 💡 1. 투수의 체력(평균 소화 이닝) 및 진짜 실력(FIP) 공식 적용
+    df_p['평균이닝'] = df_p.apply(lambda x: x['이닝_num'] / x['선발'] if x['선발'] > 0 else 4.0, axis=1).clip(3.0, 7.5)
+    df_p['FIP'] = df_p.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['이닝_num']) + 3.10 if x['이닝_num'] > 0 else 4.50, axis=1)
     
-    return df_h, df_p, team_bullpen_era
+    df_bullpen = df_p[(df_p['출장'] > df_p['선발']) & (df_p['이닝_num'] >= 5.0)]
+    team_bullpen_fip = df_bullpen.groupby('팀')['FIP'].mean().to_dict()
+    
+    return df_h, df_p, team_bullpen_fip
 
 @st.cache_data(ttl=3600)
 def load_team_momentum():
@@ -132,13 +134,22 @@ def load_schedule(target_date):
     return df
 
 @st.cache_data(ttl=60)
-def load_live_lineup(game_pk):
+def load_live_lineup_with_handedness(game_pk):
     try:
         url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
         res = requests.get(url).json()
         home_order = res['teams']['home'].get('battingOrder', [])
         away_order = res['teams']['away'].get('battingOrder', [])
-        if len(home_order) == 0 or len(away_order) == 0: return None, None
+        
+        # 💡 2. 투구 손(좌완/우완) 및 타석 위치(좌타/우타) 데이터 추출
+        h_pitchers = res['teams']['home'].get('pitchers', [])
+        a_pitchers = res['teams']['away'].get('pitchers', [])
+        
+        h_starter_hand = res['teams']['home']['players'].get(f"ID_{h_pitchers[0]}", {}).get('person', {}).get('pitchHand', {}).get('code', 'R') if h_pitchers else 'R'
+        a_starter_hand = res['teams']['away']['players'].get(f"ID_{a_pitchers[0]}", {}).get('person', {}).get('pitchHand', {}).get('code', 'R') if a_pitchers else 'R'
+
+        if len(home_order) == 0 or len(away_order) == 0: return None, None, h_starter_hand, a_starter_hand
+        
         h_players = res['teams']['home']['players']
         a_players = res['teams']['away']['players']
         
@@ -146,34 +157,62 @@ def load_live_lineup(game_pk):
         for k, p in h_players.items():
             if 'person' in p and 'id' in p['person']:
                 pos_code = p.get('position', {}).get('abbreviation', 'B')
+                bat_side = p.get('person', {}).get('batSide', {}).get('code', 'R')
                 h_lookup[p['person']['id']] = {
                     'name': p['person']['fullName'],
-                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code)
+                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code),
+                    'batSide': bat_side
                 }
                 
         a_lookup = {}
         for k, p in a_players.items():
             if 'person' in p and 'id' in p['person']:
                 pos_code = p.get('position', {}).get('abbreviation', 'B')
+                bat_side = p.get('person', {}).get('batSide', {}).get('code', 'R')
                 a_lookup[p['person']['id']] = {
                     'name': p['person']['fullName'],
-                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code)
+                    'pos': POSITION_TRANSLATIONS.get(pos_code, pos_code),
+                    'batSide': bat_side
                 }
                 
-        home_lineup = [h_lookup.get(pid, {'name': 'Unknown', 'pos': '야수'}) for pid in home_order]
-        away_lineup = [a_lookup.get(pid, {'name': 'Unknown', 'pos': '야수'}) for pid in away_order]
-        return home_lineup, away_lineup
+        home_lineup = [h_lookup.get(pid, {'name': 'Unknown', 'pos': '야수', 'batSide': 'R'}) for pid in home_order]
+        away_lineup = [a_lookup.get(pid, {'name': 'Unknown', 'pos': '야수', 'batSide': 'R'}) for pid in away_order]
+        return home_lineup, away_lineup, h_starter_hand, a_starter_hand
     except:
-        return None, None
+        return None, None, 'R', 'R'
 
-def run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp_era, a_bp_era, h_l10_rate, a_l10_rate, park_factor, num_sims=10000):
-    try: h_s_era = float(h_s_era) if float(h_s_era) < 50 else 4.50
-    except: h_s_era = 4.50
-    try: a_s_era = float(a_s_era) if float(a_s_era) < 50 else 4.50
-    except: a_s_era = 4.50
+# 💡 3. 좌우 스플릿(Platoon)을 계산하여 선발타자들의 보정 OPS를 도출하는 함수
+def calculate_platoon_ops(lineup, df_hitters, opp_pitcher_hand):
+    total_ops = 0
+    valid_batters = 0
+    for p in lineup:
+        batter_data = df_hitters[df_hitters['이름'] == p['name']]
+        base_ops = batter_data['OPS'].values[0] if not batter_data.empty else 0.720
+        bat_side = p['batSide']
+        
+        # 플래툰 가중치 적용 (좌타자가 좌투수를 만나면 패널티, 우타자가 좌투수를 만나면 어드밴티지)
+        if opp_pitcher_hand == 'L':
+            if bat_side == 'L': base_ops *= 0.90 # 역상성 패널티
+            elif bat_side == 'R': base_ops *= 1.05 # 상성 어드밴티지
+        elif opp_pitcher_hand == 'R':
+            if bat_side == 'R': base_ops *= 0.95
+            elif bat_side == 'L': base_ops *= 1.03
+            
+        total_ops += base_ops
+        valid_batters += 1
+        
+    return total_ops / valid_batters if valid_batters > 0 else 0.720
 
-    h_eff_era = (h_s_era * 0.6) + (h_bp_era * 0.4)
-    a_eff_era = (a_s_era * 0.6) + (a_bp_era * 0.4)
+# 💡 시뮬레이터 엔진 업그레이드 (FIP 및 한계 체력 반영)
+def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10_rate, a_l10_rate, park_factor, num_sims=10000):
+    
+    # 선발 투수가 버틸 수 있는 이닝 비중 (예: 6이닝 = 6/9 = 66%)
+    h_starter_weight = h_avg_ip / 9.0
+    a_starter_weight = a_avg_ip / 9.0
+    
+    # 선발 FIP + 불펜 FIP로 진정한 팀 통합 수비력 도출
+    h_eff_fip = (h_fip * h_starter_weight) + (h_bp_fip * (1 - h_starter_weight))
+    a_eff_fip = (a_fip * a_starter_weight) + (a_bp_fip * (1 - a_starter_weight))
 
     h_momentum = 1.0 + (h_l10_rate - 0.5) * 0.1
     a_momentum = 1.0 + (a_l10_rate - 0.5) * 0.1
@@ -181,8 +220,9 @@ def run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp_era, a_bp_era, h_l10_rat
     h_attack = (h_ops / 0.720) * h_momentum if h_ops > 0 else 1.0 * h_momentum
     a_attack = (a_ops / 0.720) * a_momentum if a_ops > 0 else 1.0 * a_momentum
 
-    h_expected_runs = ((a_eff_era * h_attack) + 0.2) * park_factor
-    a_expected_runs = (h_eff_era * a_attack) * park_factor
+    # 득점 공식 = (상대팀 FIP * 우리팀 타선 화력) * 파크팩터
+    h_expected_runs = ((a_eff_fip * h_attack) + 0.2) * park_factor
+    a_expected_runs = (h_eff_fip * a_attack) * park_factor
 
     h_wins, a_wins = 0, 0
     scores = []
@@ -197,20 +237,20 @@ def run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp_era, a_bp_era, h_l10_rat
         elif a_score > h_score: a_wins += 1
         scores.append(f"{h_score} : {a_score}")
 
-    return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0], h_eff_era, a_eff_era, park_factor
+    return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0], h_eff_fip, a_eff_fip, park_factor
 
 st.write("🔄 메이저리그 30개 구단 데이터베이스 동기화 중...")
 
 try:
-    df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
+    df_hitter, df_pitcher, team_bp_fip_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V13.0 완료! (타자/투수 세부 스탯 리더보드 대규모 확장)")
+    st.success("✅ V14.0 완료! (플래툰 스플릿 / 투수 FIP / 이닝별 체력 가중치 완벽 적용)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
     
-    tab1, tab2, tab3 = st.tabs(["📅 매치업 및 실시간 라인업", "投 전체 투수 스탯", "🏃‍♂️ 전체 타자 스탯"])
+    tab1, tab2, tab3 = st.tabs(["📅 매치업 및 실시간 라인업", "投 전체 투수 스탯 (FIP 포함)", "🏃‍♂️ 전체 타자 스탯"])
     
     with tab1:
         if not df_schedule.empty:
@@ -241,44 +281,37 @@ try:
             
             st.markdown("---")
             
-            h_lineup, a_lineup = load_live_lineup(game_pk)
+            h_lineup, a_lineup, h_p_hand, a_p_hand = load_live_lineup_with_handedness(game_pk)
+            
             if h_lineup and a_lineup:
-                st.success("✨ 실시간 선발 라인업이 확정되었습니다. (크롬 '한국어로 번역' 기능을 켜시면 이름이 번역됩니다.)")
+                st.success(f"✨ 라인업 확정! (상대 선발 투수 손에 맞춘 '플래툰(좌우 상성) OPS'가 자동 적용됩니다.)")
                 col_l1, col_l2 = st.columns(2)
                 with col_l1:
-                    st.markdown(f"**🏠 {h_team} 선발 라인업**")
+                    st.markdown(f"**🏠 {h_team} 선발 타순 (vs {'좌완' if a_p_hand=='L' else '우완'} 투수)**")
                     for i, p in enumerate(h_lineup): 
-                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
+                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']}/{p['batSide']}타)</span>", unsafe_allow_html=True)
                 with col_l2:
-                    st.markdown(f"**✈️ {a_team} 선발 라인업**")
+                    st.markdown(f"**✈️ {a_team} 선발 타순 (vs {'좌완' if h_p_hand=='L' else '우완'} 투수)**")
                     for i, p in enumerate(a_lineup): 
-                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
+                        st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']}/{p['batSide']}타)</span>", unsafe_allow_html=True)
                 
-                h_names = [p['name'] for p in h_lineup]
-                a_names = [p['name'] for p in a_lineup]
-                h_ops = df_hitter[df_hitter['이름'].isin(h_names)]['OPS'].mean() or 0.720
-                a_ops = df_hitter[df_hitter['이름'].isin(a_names)]['OPS'].mean() or 0.720
+                # 💡 상대 투수 손(Hand)을 넣어서 좌우 상성(Platoon)이 반영된 화력을 가져옵니다.
+                h_ops = calculate_platoon_ops(h_lineup, df_hitter, a_p_hand)
+                a_ops = calculate_platoon_ops(a_lineup, df_hitter, h_p_hand)
             else:
-                st.markdown(
-                    """
-                    <div style='text-align:center; padding: 40px; background-color:#2b2b2b; color:#ffcc00; border-radius:10px; margin: 20px 0; border: 2px dashed #ffcc00;'>
-                        <h2 style='margin:0;'>🚨 라인업 준비중 🚨</h2>
-                        <p style='margin-top:10px; color:#dddddd; font-size:16px;'>아직 선발 명단이 공식 발표되지 않았습니다.<br>(미국 현지 시간 기준, 경기 시작 2~3시간 전에 포지션과 함께 자동 표기됩니다)</p>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
+                st.warning("🚨 라인업 준비중 - 팀 평균 스탯으로 임시 연산합니다.")
                 h_ops = df_hitter[(df_hitter['팀'] == h_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
                 a_ops = df_hitter[(df_hitter['팀'] == a_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
                 
             if st.button("🚀 최종 시뮬레이션 돌리기"):
-                my_bar = st.progress(0, text="선발+불펜+타선 화력+구장 가중치 연산 중...")
+                my_bar = st.progress(0, text="플래툰, FIP, 체력 밸런스를 종합 연산 중...")
                 for p in range(100):
                     time.sleep(0.01)
                     my_bar.progress(p + 1)
                 my_bar.empty()
                 
-                h_bp = team_bp_era_dict.get(h_team, 4.00)
-                a_bp = team_bp_era_dict.get(a_team, 4.00)
+                h_bp_fip = team_bp_fip_dict.get(h_team, 4.00)
+                a_bp_fip = team_bp_fip_dict.get(a_team, 4.00)
                 
                 h_l10 = momentum_dict.get(h_team, {'rate': 0.5, 'str': '5 W - 5 L'})
                 a_l10 = momentum_dict.get(a_team, {'rate': 0.5, 'str': '5 W - 5 L'})
@@ -287,25 +320,29 @@ try:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"🏠 **{h_team} 전력 분석**")
-                    h_s_era = df_pitcher[df_pitcher['이름'] == h_p]['ERA_num'].values[0] if not df_pitcher[df_pitcher['이름'] == h_p].empty else 4.50
-                    st.write(f"⚾ 선발투수({h_p}) 방어율: **{h_s_era:.2f}** | 🛡️ 불펜 평균 방어율: **{h_bp:.2f}**")
-                    st.write(f"🔥 타선 OPS: **{h_ops:.3f}**")
-                    st.write(f"📈 최근 기세(Last 10): **{h_l10['str']}**")
+                    st.error(f"🏠 **{h_team} 전력**")
+                    h_p_data = df_pitcher[df_pitcher['이름'] == h_p]
+                    h_s_fip = h_p_data['FIP'].values[0] if not h_p_data.empty else 4.50
+                    h_s_ip = h_p_data['평균이닝'].values[0] if not h_p_data.empty else 5.0
+                    st.write(f"⚾ 선발 FIP (진짜 실력): **{h_s_fip:.2f}** | 🔋 평균 소화 이닝: **{h_s_ip:.1f}회**")
+                    st.write(f"🛡️ 팀 불펜 FIP: **{h_bp_fip:.2f}**")
+                    st.write(f"🔥 플래툰 보정 타선 OPS: **{h_ops:.3f}**")
+                    st.write(f"📈 기세(L10): **{h_l10['str']}**")
                     
                 with col2:
-                    st.info(f"✈️ **{a_team} 전력 분석**")
-                    a_s_era = df_pitcher[df_pitcher['이름'] == a_p]['ERA_num'].values[0] if not df_pitcher[df_pitcher['이름'] == a_p].empty else 4.50
-                    st.write(f"⚾ 선발투수({a_p}) 방어율: **{a_s_era:.2f}** | 🛡️ 불펜 평균 방어율: **{a_bp:.2f}**")
-                    st.write(f"🔥 타선 OPS: **{a_ops:.3f}**")
-                    st.write(f"📈 최근 기세(Last 10): **{a_l10['str']}**")
-            
-                st.markdown(f"**🏟️ 구장 환경 변수:** {h_team} 홈구장 (파크 팩터: **{pf}**)")
+                    st.info(f"✈️ **{a_team} 전력**")
+                    a_p_data = df_pitcher[df_pitcher['이름'] == a_p]
+                    a_s_fip = a_p_data['FIP'].values[0] if not a_p_data.empty else 4.50
+                    a_s_ip = a_p_data['평균이닝'].values[0] if not a_p_data.empty else 5.0
+                    st.write(f"⚾ 선발 FIP (진짜 실력): **{a_s_fip:.2f}** | 🔋 평균 소화 이닝: **{a_s_ip:.1f}회**")
+                    st.write(f"🛡️ 팀 불펜 FIP: **{a_bp_fip:.2f}**")
+                    st.write(f"🔥 플래툰 보정 타선 OPS: **{a_ops:.3f}**")
+                    st.write(f"📈 기세(L10): **{a_l10['str']}**")
                 
-                h_win, a_win, b_score, h_eff, a_eff, _ = run_simulation(h_s_era, a_s_era, h_ops, a_ops, h_bp, a_bp, h_l10['rate'], a_l10['rate'], pf)
+                h_win, a_win, b_score, h_eff, a_eff, _ = run_simulation(h_s_fip, a_s_fip, h_s_ip, a_s_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10['rate'], a_l10['rate'], pf)
                 
                 st.markdown("---")
-                st.subheader("🏆 최종 시뮬레이션 결과 리포트")
+                st.subheader("🏆 세이버메트릭스 최종 결과 리포트")
                 st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
                 st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
                 st.warning(f"🎯 **가장 많이 나온 스코어 ({h_team} : {a_team}) -** {b_score}")
@@ -313,11 +350,11 @@ try:
             st.info("예정된 경기가 없습니다.")
             
     with tab2:
-        st.write("2026 시즌 전체 투수 세부 스탯 (가로 스크롤을 넘겨보세요)")
-        st.dataframe(df_pitcher[['이름', '팀', 'ERA', '승', '패', '세이브', '출장', '선발', '이닝', '탈삼진', '볼넷', 'WHIP', '피안타율']], use_container_width=True)
+        st.write("2026 시즌 전체 투수 세부 스탯 (FIP 및 평균 소화이닝 포함)")
+        st.dataframe(df_pitcher[['이름', '팀', 'ERA', 'FIP', '평균이닝', '승', '패', '세이브', '출장', '선발', '이닝', '탈삼진', '볼넷', '피홈런', 'WHIP', '피안타율']], use_container_width=True)
         
     with tab3:
-        st.write("2026 시즌 전체 타자 세부 스탯 (가로 스크롤을 넘겨보세요)")
+        st.write("2026 시즌 전체 타자 세부 스탯")
         st.dataframe(df_hitter[['이름', '팀', '타수', '안타', '2루타', '3루타', '홈런', '타점', '득점', '볼넷', '삼진', '도루', '타율', '출루율', '장타율', 'OPS']], use_container_width=True)
         
 except Exception as e:
