@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.1 (디자인 완성판)")
+st.title("⚾ MLB AI 감독 모드 V12.2 (디자인 완성판)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -92,12 +92,14 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
+            # 💡 표출용 문자열 조립 (팀 이름 옆에 로고 이미지 태그 삽입)
+            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='20' style='vertical-align:middle; margin-right:6px;'> {home_team}"
+            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='20' style='vertical-align:middle; margin-right:6px;'> {away_team}"
+
             games.append({
                 '경기시간(KST)': time_str, '상태': status_str,
-                '홈 로고': f"https://www.mlbstatic.com/team-logos/{home_id}.svg", # 💡 표에 들어갈 홈 로고
-                '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, 
-                '원정 로고': f"https://www.mlbstatic.com/team-logos/{away_id}.svg", # 💡 표에 들어갈 원정 로고
-                '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher,
+                '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, '홈표시': home_display,
+                '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher, '원정표시': away_display,
                 'gamePk': game.get('gamePk')
             })
     df = pd.DataFrame(games)
@@ -159,25 +161,22 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.1 완료! (미니 로고 및 표 안의 로고 기능 적용)")
+    st.success("✅ V12.2 완료! (텍스트 일체형 로고 적용)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
     
     if not df_schedule.empty:
-        # 💡 일정표에 로고를 포함시켜 출력 (Streamlit의 column_config 기능 사용)
-        display_df = df_schedule.set_index('경기시간(KST)')
-        st.dataframe(
-            display_df[['상태', '홈 로고', '홈 팀', '홈 선발투수', '원정 로고', '어웨이 팀 (원정)', '어웨이 선발투수']],
-            column_config={
-                "홈 로고": st.column_config.ImageColumn("로고"),
-                "원정 로고": st.column_config.ImageColumn("로고")
-            },
-            use_container_width=True
-        )
+        # 💡 데이터프레임 대신 마크다운 테이블을 생성하여 로고와 텍스트를 한 칸에 출력
+        md_table = "| 경기시간(KST) | 상태 | 홈 팀 | 홈 선발투수 | 어웨이 팀 (원정) | 어웨이 선발투수 |\n"
+        md_table += "|:---:|:---:|:---|:---|:---|:---|\n"
+        for _, row in df_schedule.iterrows():
+            md_table += f"| {row['경기시간(KST)']} | {row['상태']} | {row['홈표시']} | {row['홈 선발투수']} | {row['원정표시']} | {row['어웨이 선발투수']} |\n"
         
+        st.markdown(md_table, unsafe_allow_html=True)
         st.markdown("---")
         
+        # 선택창은 순수 텍스트(홈 팀, 어웨이 팀)만 사용
         game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
         selected_game = st.selectbox("🔮 10,000회 정밀 시뮬레이션을 돌릴 경기를 선택하세요:", game_options)
         
@@ -187,7 +186,6 @@ try:
         h_p, a_p = row['홈 선발투수'], row['어웨이 선발투수']
         game_pk = row['gamePk']
         
-        # 💡 텍스트와 딱 맞는 크기의 인라인(Inline) 로고 출력
         c1, c2, c3 = st.columns([2, 1, 2])
         with c1:
             st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{h_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **홈: {h_team}**", unsafe_allow_html=True)
