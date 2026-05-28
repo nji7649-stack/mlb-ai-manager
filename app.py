@@ -7,7 +7,7 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V14.0 (세이버메트릭스 완전체)")
+st.title("⚾ MLB AI 감독 모드 V15.0 (AI 배당 + 다중 스코어 예측)")
 
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -60,7 +60,6 @@ def load_mlb_all_data():
     df_p['ERA_num'] = pd.to_numeric(df_p['ERA'], errors='coerce').fillna(4.50)
     df_p['이닝_num'] = pd.to_numeric(df_p['이닝'], errors='coerce').fillna(0.0)
     
-    # 💡 1. 투수의 체력(평균 소화 이닝) 및 진짜 실력(FIP) 공식 적용
     df_p['평균이닝'] = df_p.apply(lambda x: x['이닝_num'] / x['선발'] if x['선발'] > 0 else 4.0, axis=1).clip(3.0, 7.5)
     df_p['FIP'] = df_p.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['이닝_num']) + 3.10 if x['이닝_num'] > 0 else 4.50, axis=1)
     
@@ -89,12 +88,55 @@ def load_team_momentum():
             l10_dict[name] = {'rate': l10_win_rate, 'str': l10_str}
     return l10_dict
 
+# 💡 AI 적정 배당 산출 함수 (피타고리안 기대승률 기반)
+def calculate_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
+    # 기본 화력 추출
+    h_ops = df_h[(df_h['팀'] == h_team) & (df_h['타수'] > 50)]['OPS'].mean() or 0.720
+    a_ops = df_h[(df_h['팀'] == a_team) & (df_h['타수'] > 50)]['OPS'].mean() or 0.720
+    
+    # 선발 투수 FIP 추출
+    h_p_data = df_p[df_p['이름'] == h_p]
+    a_p_data = df_p[df_p['이름'] == a_p]
+    h_s_fip = h_p_data['FIP'].values[0] if not h_p_data.empty else 4.50
+    a_s_fip = a_p_data['FIP'].values[0] if not a_p_data.empty else 4.50
+    
+    h_bp_fip = team_bp_fip.get(h_team, 4.00)
+    a_bp_fip = team_bp_fip.get(a_team, 4.00)
+    
+    h_eff_fip = (h_s_fip * 0.6) + (h_bp_fip * 0.4)
+    a_eff_fip = (a_s_fip * 0.6) + (a_bp_fip * 0.4)
+    
+    # 예상 득점력 연산
+    h_attack = h_ops / 0.720
+    a_attack = a_ops / 0.720
+    
+    pf = PARK_FACTORS.get(h_team, 1.00)
+    h_exp_runs = ((a_eff_fip * h_attack) + 0.2) * pf
+    a_exp_runs = (h_eff_fip * a_attack) * pf
+    
+    # 피타고리안 기대 승률
+    win_prob = (h_exp_runs ** 1.83) / ((h_exp_runs ** 1.83) + (a_exp_runs ** 1.83))
+    
+    # 환급률 94% 가정 프로토 배당 계산
+    h_odds = round(0.94 / win_prob, 2)
+    a_odds = round(0.94 / (1 - win_prob), 2)
+    
+    # 너무 극단적인 배당 방지
+    h_odds = max(1.10, min(h_odds, 6.00))
+    a_odds = max(1.10, min(a_odds, 6.00))
+    
+    return f"{h_odds:.2f}", f"{a_odds:.2f}"
+
 @st.cache_data(ttl=300)
 def load_schedule(target_date):
     date_str = target_date.strftime("%Y-%m-%d")
     schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
     res = requests.get(schedule_url).json()
     games = []
+    
+    # 배당 계산을 위해 임시로 캐시된 데이터 호출
+    df_h, df_p, team_bp_fip = load_mlb_all_data()
+
     if 'dates' in res and len(res['dates']) > 0:
         for game in res['dates'][0]['games']:
             away_team = game['teams']['away']['team']['name']
@@ -120,8 +162,11 @@ def load_schedule(target_date):
             elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
             else: status_str = "⏳ 예정"
 
-            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b>"
-            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b>"
+            # 💡 AI 배당률 계산
+            h_odds, a_odds = calculate_ai_odds(home_team, away_team, home_pitcher, away_pitcher, df_h, df_p, team_bp_fip)
+
+            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b> <span style='color:#ffcc00; font-size:13px; margin-left:10px;'>[{h_odds}]</span>"
+            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b> <span style='color:#ffcc00; font-size:13px; margin-left:10px;'>[{a_odds}]</span>"
 
             games.append({
                 '경기시간(KST)': time_str, '상태': status_str,
@@ -141,7 +186,6 @@ def load_live_lineup_with_handedness(game_pk):
         home_order = res['teams']['home'].get('battingOrder', [])
         away_order = res['teams']['away'].get('battingOrder', [])
         
-        # 💡 2. 투구 손(좌완/우완) 및 타석 위치(좌타/우타) 데이터 추출
         h_pitchers = res['teams']['home'].get('pitchers', [])
         a_pitchers = res['teams']['away'].get('pitchers', [])
         
@@ -181,7 +225,6 @@ def load_live_lineup_with_handedness(game_pk):
     except:
         return None, None, 'R', 'R'
 
-# 💡 3. 좌우 스플릿(Platoon)을 계산하여 선발타자들의 보정 OPS를 도출하는 함수
 def calculate_platoon_ops(lineup, df_hitters, opp_pitcher_hand):
     total_ops = 0
     valid_batters = 0
@@ -190,10 +233,9 @@ def calculate_platoon_ops(lineup, df_hitters, opp_pitcher_hand):
         base_ops = batter_data['OPS'].values[0] if not batter_data.empty else 0.720
         bat_side = p['batSide']
         
-        # 플래툰 가중치 적용 (좌타자가 좌투수를 만나면 패널티, 우타자가 좌투수를 만나면 어드밴티지)
         if opp_pitcher_hand == 'L':
-            if bat_side == 'L': base_ops *= 0.90 # 역상성 패널티
-            elif bat_side == 'R': base_ops *= 1.05 # 상성 어드밴티지
+            if bat_side == 'L': base_ops *= 0.90
+            elif bat_side == 'R': base_ops *= 1.05
         elif opp_pitcher_hand == 'R':
             if bat_side == 'R': base_ops *= 0.95
             elif bat_side == 'L': base_ops *= 1.03
@@ -203,14 +245,10 @@ def calculate_platoon_ops(lineup, df_hitters, opp_pitcher_hand):
         
     return total_ops / valid_batters if valid_batters > 0 else 0.720
 
-# 💡 시뮬레이터 엔진 업그레이드 (FIP 및 한계 체력 반영)
 def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10_rate, a_l10_rate, park_factor, num_sims=10000):
-    
-    # 선발 투수가 버틸 수 있는 이닝 비중 (예: 6이닝 = 6/9 = 66%)
     h_starter_weight = h_avg_ip / 9.0
     a_starter_weight = a_avg_ip / 9.0
     
-    # 선발 FIP + 불펜 FIP로 진정한 팀 통합 수비력 도출
     h_eff_fip = (h_fip * h_starter_weight) + (h_bp_fip * (1 - h_starter_weight))
     a_eff_fip = (a_fip * a_starter_weight) + (a_bp_fip * (1 - a_starter_weight))
 
@@ -220,7 +258,6 @@ def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_b
     h_attack = (h_ops / 0.720) * h_momentum if h_ops > 0 else 1.0 * h_momentum
     a_attack = (a_ops / 0.720) * a_momentum if a_ops > 0 else 1.0 * a_momentum
 
-    # 득점 공식 = (상대팀 FIP * 우리팀 타선 화력) * 파크팩터
     h_expected_runs = ((a_eff_fip * h_attack) + 0.2) * park_factor
     a_expected_runs = (h_eff_fip * a_attack) * park_factor
 
@@ -237,7 +274,14 @@ def run_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip, a_b
         elif a_score > h_score: a_wins += 1
         scores.append(f"{h_score} : {a_score}")
 
-    return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0], h_eff_fip, a_eff_fip, park_factor
+    # 💡 최다 발생 스코어 상위 3개를 추출하여 반환합니다.
+    top3_scores = Counter(scores).most_common(3)
+    formatted_top3 = []
+    for score, count in top3_scores:
+        percentage = (count / num_sims) * 100
+        formatted_top3.append(f"{score} ({percentage:.1f}%)")
+
+    return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, formatted_top3, h_eff_fip, a_eff_fip, park_factor
 
 st.write("🔄 메이저리그 30개 구단 데이터베이스 동기화 중...")
 
@@ -245,7 +289,7 @@ try:
     df_hitter, df_pitcher, team_bp_fip_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V14.0 완료! (플래툰 스플릿 / 투수 FIP / 이닝별 체력 가중치 완벽 적용)")
+    st.success("✅ V15.0 완료! (일정표 내 AI 적정 배당 표시 및 스코어 TOP3 예측)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -254,8 +298,9 @@ try:
     
     with tab1:
         if not df_schedule.empty:
+            st.markdown("<p style='font-size:13px; color:#cccccc; margin-bottom:5px;'>※ 팀 이름 옆 노란색 숫자는 AI가 전력을 기반으로 산출한 <b>'AI 적정 배당(Implied Odds)'</b>입니다. 프로토 배당과 비교해 보세요!</p>", unsafe_allow_html=True)
             html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
-            html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀</th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정)</th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
+            html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀 <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정) <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
             for _, row in df_schedule.iterrows():
                 html_table += f"<tr style='border-bottom: 1px solid #333;'><td style='padding: 10px;'>{row['경기시간(KST)']}</td><td style='padding: 10px;'>{row['상태']}</td><td style='padding: 10px; text-align: left;'>{row['홈표시']}</td><td style='padding: 10px;'>{row['홈 선발투수']}</td><td style='padding: 10px; text-align: left;'>{row['원정표시']}</td><td style='padding: 10px;'>{row['어웨이 선발투수']}</td></tr>"
             html_table += "</table>"
@@ -295,7 +340,6 @@ try:
                     for i, p in enumerate(a_lineup): 
                         st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']}/{p['batSide']}타)</span>", unsafe_allow_html=True)
                 
-                # 💡 상대 투수 손(Hand)을 넣어서 좌우 상성(Platoon)이 반영된 화력을 가져옵니다.
                 h_ops = calculate_platoon_ops(h_lineup, df_hitter, a_p_hand)
                 a_ops = calculate_platoon_ops(a_lineup, df_hitter, h_p_hand)
             else:
@@ -339,13 +383,18 @@ try:
                     st.write(f"🔥 플래툰 보정 타선 OPS: **{a_ops:.3f}**")
                     st.write(f"📈 기세(L10): **{a_l10['str']}**")
                 
-                h_win, a_win, b_score, h_eff, a_eff, _ = run_simulation(h_s_fip, a_s_fip, h_s_ip, a_s_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10['rate'], a_l10['rate'], pf)
+                h_win, a_win, top3_scores, h_eff, a_eff, _ = run_simulation(h_s_fip, a_s_fip, h_s_ip, a_s_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10['rate'], a_l10['rate'], pf)
                 
                 st.markdown("---")
                 st.subheader("🏆 세이버메트릭스 최종 결과 리포트")
                 st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
                 st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
-                st.warning(f"🎯 **가장 많이 나온 스코어 ({h_team} : {a_team}) -** {b_score}")
+                
+                # 💡 상위 3개 스코어를 순서대로 출력합니다.
+                st.warning(f"🎯 **예상 스코어 TOP 3 (홈 : 원정)**")
+                st.write(f"🥇 1순위: **{top3_scores[0]}**")
+                st.write(f"🥈 2순위: **{top3_scores[1]}**")
+                st.write(f"🥉 3순위: **{top3_scores[2]}**")
         else:
             st.info("예정된 경기가 없습니다.")
             
