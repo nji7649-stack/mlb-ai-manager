@@ -7,9 +7,8 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V12.7 (선수 이름 한글 필터 엔진)")
+st.title("⚾ MLB AI 감독 모드 V12.8 (수제 한글 사전 업데이트)")
 
-# 🏟️ 메이저리그 30개 구장 파크 팩터
 PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
@@ -21,7 +20,6 @@ PARK_FACTORS = {
     'San Diego Padres': 0.94, 'Seattle Mariners': 0.93
 }
 
-# 🗺️ 30개 구단 한글 번역 사전
 TEAM_TRANSLATIONS = {
     'Arizona Diamondbacks': '애리조나 다이아몬드백스', 'Atlanta Braves': '애틀랜타 브레이브스',
     'Baltimore Orioles': '볼티모어 오리올스', 'Boston Red Sox': '보스턴 레드삭스',
@@ -41,14 +39,15 @@ TEAM_TRANSLATIONS = {
     'Washington Nationals': '워싱턴 내셔널스'
 }
 
-# 📋 포지션 한글 번역 사전
+# 💡 대타(PH), 대주자(PR) 포지션을 추가했습니다.
 POSITION_TRANSLATIONS = {
     'P': '투수', 'C': '포수', '1B': '1루수', '2B': '2루수', '3B': '3루수',
     'SS': '유격수', 'LF': '좌익수', 'CF': '중견수', 'RF': '우익수', 'DH': '지명타자',
-    'TWP': '투타겸업', 'O': '외야수', 'IF': '내야수', 'B': '야수'
+    'TWP': '투타겸업', 'O': '외야수', 'IF': '내야수', 'B': '야수', 
+    'PH': '대타', 'PR': '대주자'
 }
 
-# 🏃‍♂️ 💡 선수 이름 한글 번역 사전 (새로 발굴되거나 좋아하는 선수를 여기에 추가하시면 됩니다!)
+# 💡 감독님이 보내주신 스크린샷의 누락 선수들을 사전에 꽉꽉 채워 넣었습니다!
 PLAYER_TRANSLATIONS = {
     'Shohei Ohtani': '오타니 쇼헤이', 'Aaron Judge': '애런 저지', 'Mike Trout': '마이크 트라웃',
     'Nathan Eovaldi': '네이선 이오발디', 'Spencer Arrighetti': '스펜서 아리게티',
@@ -63,16 +62,18 @@ PLAYER_TRANSLATIONS = {
     'James Wood': '제임스 우드', 'Christian Walker': '크리스찬 워커',
     'Colt Keith': '콜트 키스', 'Kevin McGonigle': '케빈 맥고니글', 'Dillon Dingler': '딜런 딩러',
     'Riley Greene': '라일리 그린', 'Spencer Torkelson': '스펜서 토켈슨', 'Zach McKinstry': '잭 맥킨스트리',
+    'Matt Vierling': '맷 비어링', 'Wenceel Pérez': '웬실 페레즈', 'Jahmai Jones': '자마이 존스',
     'Zach Neto': '잭 네토', 'Vaughn Grissom': '본 그리섬', 'Jorge Soler': '호르헤 솔레어',
-    'Jose Siri': '호세 시리', 'Jo Adell': '조 아델', 'Jake Burger': '제이크 버거',
-    'Ezequiel Duran': '에세키엘 두란', 'Kyle Higashioka': '카일 히가시오카', 'Nicky Lopez': '니키 로페즈',
-    'Braden Shewmake': '브레이든 슈메이크', 'Zach Dezenzo': '잭 디젠조', 'Brice Matthews': '브라이스 매튜스',
-    'Christian Vázquez': '크리스티안 바스케스', 'Trey Gibson': '트레이 깁슨', 'Steven Matz': '스티븐 매츠',
-    'Casey Mize': '케이시 마이즈', 'José Soriano': '호세 소리아노', 'Bubba Chandler': '부바 챈들러',
-    'Jameson Taillon': '제임슨 타이욘', 'Connelly Early': '코넬리 얼리', 'Bryce Elder': '브라이스 엘더',
-    'Huascar Brazobán': '와스카 브라조반', 'Andrew Abbott': '앤드류 애보트', 'David Sandlin': '데이비드 샌들린',
-    'Connor Prielipp': '코너 프리립', 'Noah Cameron': '노아 카메론', 'Gerrit Cole': '게릿 콜',
-    'Jacob deGrom': '제이콥 디그롬', 'Mike Burrows': '마이크 버로우즈'
+    'Jose Siri': '호세 시리', 'Jo Adell': '조 아델', 'Oswald Peraza': '오스왈드 페라자', 
+    'Sebastián Rivero': '세바스찬 리베로', 'Donovan Walton': '도노반 월튼',
+    'Jake Burger': '제이크 버거', 'Ezequiel Duran': '에세키엘 두란', 'Kyle Higashioka': '카일 히가시오카', 
+    'Nicky Lopez': '니키 로페즈', 'Braden Shewmake': '브레이든 슈메이크', 'Zach Dezenzo': '잭 디젠조', 
+    'Brice Matthews': '브라이스 매튜스', 'Christian Vázquez': '크리스티안 바스케스', 'Trey Gibson': '트레이 깁슨', 
+    'Steven Matz': '스티븐 매츠', 'Casey Mize': '케이시 마이즈', 'José Soriano': '호세 소리아노', 
+    'Bubba Chandler': '부바 챈들러', 'Jameson Taillon': '제임슨 타이욘', 'Connelly Early': '코넬리 얼리', 
+    'Bryce Elder': '브라이스 엘더', 'Huascar Brazobán': '와스카 브라조반', 'Andrew Abbott': '앤드류 애보트', 
+    'David Sandlin': '데이비드 샌들린', 'Connor Prielipp': '코너 프리립', 'Noah Cameron': '노아 카메론', 
+    'Gerrit Cole': '게릿 콜', 'Jacob deGrom': '제이콥 디그롬', 'Mike Burrows': '마이크 버로우즈'
 }
 
 @st.cache_data(ttl=3600)
@@ -150,7 +151,6 @@ def load_schedule(target_date):
             home_ko = TEAM_TRANSLATIONS.get(home_team, home_team)
             away_ko = TEAM_TRANSLATIONS.get(away_team, away_team)
             
-            # 💡 선발 투수 이름 한글 매칭 적용
             home_p_ko = PLAYER_TRANSLATIONS.get(home_pitcher, home_pitcher)
             away_p_ko = PLAYER_TRANSLATIONS.get(away_pitcher, away_pitcher)
 
@@ -241,7 +241,7 @@ try:
     df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     momentum_dict = load_team_momentum()
     
-    st.success("✅ V12.7 완료! (선수 이름 한글 필터 가동 중)")
+    st.success("✅ V12.8 완료! (사전 업데이트 - 디트로이트, 에인절스 추가 완료)")
     
     selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", date.today())
     df_schedule = load_schedule(selected_date)
@@ -250,7 +250,6 @@ try:
     
     with tab1:
         if not df_schedule.empty:
-            # 💡 일정표에 한글 투수 이름이 나오도록 변경
             html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
             html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀</th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정)</th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
             for _, row in df_schedule.iterrows():
@@ -286,13 +285,11 @@ try:
                 with col_l1:
                     st.markdown(f"**🏠 {h_ko} 선발 라인업**")
                     for i, p in enumerate(h_lineup): 
-                        # 💡 실시간 라인업 명단의 선수 이름 한글 필터 거치기
                         p_ko = PLAYER_TRANSLATIONS.get(p['name'], p['name'])
                         st.write(f"{i+1}. {p_ko} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
                 with col_l2:
                     st.markdown(f"**✈️ {a_ko} 선발 라인업**")
                     for i, p in enumerate(a_lineup): 
-                        # 💡 실시간 라인업 명단의 선수 이름 한글 필터 거치기
                         p_ko = PLAYER_TRANSLATIONS.get(p['name'], p['name'])
                         st.write(f"{i+1}. {p_ko} <span style='color:#ffcc00;'>({p['pos']})</span>", unsafe_allow_html=True)
                 
@@ -327,7 +324,6 @@ try:
                 
                 pf = PARK_FACTORS.get(h_team, 1.00)
                 
-                # 💡 리포트 전력 분석표 내부의 선수 이름 한글 매칭
                 h_p_ko = PLAYER_TRANSLATIONS.get(h_p, h_p)
                 a_p_ko = PLAYER_TRANSLATIONS.get(a_p, a_p)
 
