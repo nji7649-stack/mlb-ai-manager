@@ -7,10 +7,11 @@ from collections import Counter
 import time
 
 st.set_page_config(page_title="MLB AI 감독 모드", layout="wide")
-st.title("⚾ MLB AI 감독 모드 V10.1 (라인업 버그 수정판)")
+st.title("⚾ MLB AI 감독 모드 V11.0 (투타+불펜 완전체 엔진)")
 
 @st.cache_data(ttl=3600)
 def load_mlb_all_data():
+    # 1. 타자 데이터
     hitter_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&playerPool=ALL&limit=1500"
     h_splits = requests.get(hitter_url).json()['stats'][0]['splits']
     hitter_list = []
@@ -25,12 +26,20 @@ def load_mlb_all_data():
     df_h['OPS'] = pd.to_numeric(df_h['OPS'], errors='coerce').fillna(0.0)
     df_h['타수'] = pd.to_numeric(df_h['타수'], errors='coerce').fillna(0)
     
+    # 2. 투수 데이터 (출장, 선발 경기 수 추가)
     pitcher_url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&gameType=R&season=2026&playerPool=ALL&limit=1500"
     p_splits = requests.get(pitcher_url).json()['stats'][0]['splits']
-    pitcher_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], 'ERA': r['stat'].get('era', '99.99'), '이닝': r['stat'].get('inningsPitched', '0.0')} for r in p_splits]
+    pitcher_list = [{'이름': r['player']['fullName'], '팀': r['team']['name'], 'ERA': r['stat'].get('era', '99.99'), '이닝': r['stat'].get('inningsPitched', '0.0'), '출장': r['stat'].get('gamesPlayed', 0), '선발': r['stat'].get('gamesStarted', 0)} for r in p_splits]
     df_p = pd.DataFrame(pitcher_list)
     
-    return df_h, df_p
+    df_p['ERA_num'] = pd.to_numeric(df_p['ERA'], errors='coerce').fillna(4.50)
+    df_p['이닝_num'] = pd.to_numeric(df_p['이닝'], errors='coerce').fillna(0.0)
+    
+    # 💡 팀별 불펜 방어율 사전 계산: (출장이 선발보다 많고, 5이닝 이상 던진 전문 구원투수들)
+    df_bullpen = df_p[(df_p['출장'] > df_p['선발']) & (df_p['이닝_num'] >= 5.0)]
+    team_bullpen_era = df_bullpen.groupby('팀')['ERA_num'].mean().to_dict()
+    
+    return df_h, df_p, team_bullpen_era
 
 @st.cache_data(ttl=300)
 def load_schedule(target_date):
@@ -75,7 +84,6 @@ def load_schedule(target_date):
         df = df.sort_values('경기시간(KST)').reset_index(drop=True)
     return df
 
-# 💡 '알 수 없음' 에러를 막기 위한 무적의 이름 찾기 로직 적용
 @st.cache_data(ttl=60)
 def load_live_lineup(game_pk):
     try:
@@ -91,11 +99,9 @@ def load_live_lineup(game_pk):
         home_players = res['teams']['home']['players']
         away_players = res['teams']['away']['players']
         
-        # 키(Key) 이름이 어떻게 들어오든 상관없이, 실제 선수 ID로 딕셔너리를 재조립합니다.
         home_lookup = {p['person']['id']: p['person']['fullName'] for k, p in home_players.items() if 'person' in p and 'id' in p['person']}
         away_lookup = {p['person']['id']: p['person']['fullName'] for k, p in away_players.items() if 'person' in p and 'id' in p['person']}
         
-        # 재조립된 딕셔너리에서 1~9번 타자의 이름을 정확히 매칭해옵니다.
         home_lineup = [home_lookup.get(pid, '이름 로딩 에러') for pid in home_order]
         away_lineup = [away_lookup.get(pid, '이름 로딩 에러') for pid in away_order]
         
@@ -103,17 +109,23 @@ def load_live_lineup(game_pk):
     except Exception as e:
         return None, None
 
-def run_simulation(home_era, away_era, home_ops, away_ops, num_sims=10000):
-    try: h_era = float(home_era) if float(home_era) < 50 else 4.50
-    except: h_era = 4.50
-    try: a_era = float(away_era) if float(away_era) < 50 else 4.50
-    except: a_era = 4.50
+# 💡 선발투수 방어율과 불펜 방어율을 모두 받는 강력한 시뮬레이션 엔진
+def run_simulation(home_starter_era, away_starter_era, home_ops, away_ops, home_bp_era, away_bp_era, num_sims=10000):
+    try: h_s_era = float(home_starter_era) if float(home_starter_era) < 50 else 4.50
+    except: h_s_era = 4.50
+    try: a_s_era = float(away_starter_era) if float(away_starter_era) < 50 else 4.50
+    except: a_s_era = 4.50
+
+    # 💡 투수진 통합 방어율 (선발 60% + 불펜 40% 비중)
+    home_effective_era = (h_s_era * 0.6) + (home_bp_era * 0.4)
+    away_effective_era = (a_s_era * 0.6) + (away_bp_era * 0.4)
 
     home_attack_power = home_ops / 0.720 if home_ops > 0 else 1.0
     away_attack_power = away_ops / 0.720 if away_ops > 0 else 1.0
 
-    home_expected_runs = (a_era * home_attack_power) + 0.2
-    away_expected_runs = (h_era * away_attack_power)
+    # 득점 확률 계산에 '통합 방어율(Effective ERA)' 적용
+    home_expected_runs = (away_effective_era * home_attack_power) + 0.2
+    away_expected_runs = (home_effective_era * away_attack_power)
 
     home_wins, away_wins = 0, 0
     scores = []
@@ -128,14 +140,14 @@ def run_simulation(home_era, away_era, home_ops, away_ops, num_sims=10000):
         elif away_score > home_score: away_wins += 1
         scores.append(f"{home_score} : {away_score}")
 
-    return (home_wins / num_sims) * 100, (away_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0]
+    return (home_wins / num_sims) * 100, (away_wins / num_sims) * 100, Counter(scores).most_common(1)[0][0], home_effective_era, away_effective_era
 
 st.write("🔄 메이저리그 공식 서버와 연결 중...")
 
 try:
-    df_hitter, df_pitcher = load_mlb_all_data()
+    df_hitter, df_pitcher, team_bp_era_dict = load_mlb_all_data()
     
-    st.success("✅ V10.1 시스템 준비 완료! (라인업 버그 수정 패치 적용)")
+    st.success("✅ V11.0 시스템 준비 완료! (불펜 통합 전력 분석 엔진 탑재)")
     
     st.markdown("### 🗓️ 분석 날짜 선택")
     selected_date = st.date_input("미리 분석하고 싶은 경기 날짜를 선택하세요:", date.today())
@@ -199,30 +211,39 @@ try:
             st.markdown("---")
             if st.button("🚀 10,000회 시뮬레이션 돌리기"):
                 
-                progress_text = "전력 데이터를 기반으로 10,000경기를 가상으로 치르는 중입니다..."
+                progress_text = "선발, 불펜, 타선의 화력을 종합하여 10,000경기를 시뮬레이션 중입니다..."
                 my_bar = st.progress(0, text=progress_text)
                 for percent_complete in range(100):
                     time.sleep(0.01)
                     my_bar.progress(percent_complete + 1, text=progress_text)
                 my_bar.empty()
                 
+                # 팀 불펜 방어율 추출 (없으면 기본값 4.00)
+                home_bp = team_bp_era_dict.get(home_team, 4.00)
+                away_bp = team_bp_era_dict.get(away_team, 4.00)
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"🏠 **홈:** {home_team} (투수: {home_p})")
-                    st.write(f"🔥 타선 평균 OPS: **{home_team_ops:.3f}**")
+                    st.error(f"🏠 **홈:** {home_team}")
                     home_p_data = df_pitcher[df_pitcher['이름'] == home_p]
-                    home_era = home_p_data['ERA'].values[0] if not home_p_data.empty else 4.50
+                    home_s_era = home_p_data['ERA_num'].values[0] if not home_p_data.empty else 4.50
+                    st.write(f"⚾ 선발 투수({home_p}) 방어율: **{home_s_era:.2f}**")
+                    st.write(f"🛡️ 팀 불펜 평균 방어율: **{home_bp:.2f}**")
+                    st.write(f"🔥 타선 평균 OPS: **{home_team_ops:.3f}**")
                     
                 with col2:
-                    st.info(f"✈️ **원정:** {away_team} (투수: {away_p})")
-                    st.write(f"🔥 타선 평균 OPS: **{away_team_ops:.3f}**")
+                    st.info(f"✈️ **원정:** {away_team}")
                     away_p_data = df_pitcher[df_pitcher['이름'] == away_p]
-                    away_era = away_p_data['ERA'].values[0] if not away_p_data.empty else 4.50
+                    away_s_era = away_p_data['ERA_num'].values[0] if not away_p_data.empty else 4.50
+                    st.write(f"⚾ 선발 투수({away_p}) 방어율: **{away_s_era:.2f}**")
+                    st.write(f"🛡️ 팀 불펜 평균 방어율: **{away_bp:.2f}**")
+                    st.write(f"🔥 타선 평균 OPS: **{away_team_ops:.3f}**")
                 
-                home_win, away_win, best_score = run_simulation(home_era, away_era, home_team_ops, away_team_ops)
+                home_win, away_win, best_score, h_eff_era, a_eff_era = run_simulation(home_s_era, away_s_era, home_team_ops, away_team_ops, home_bp, away_bp)
                 
                 st.markdown("---")
                 st.subheader("🏆 최종 시뮬레이션 결과 리포트")
+                st.markdown(f"**[홈 투수진 통합 방어율: {h_eff_era:.2f}]** vs **[원정 투수진 통합 방어율: {a_eff_era:.2f}]**")
                 st.success(f"**{home_team} (홈) 승리 확률:** {home_win:.1f}%")
                 st.info(f"**{away_team} (원정) 승리 확률:** {away_win:.1f}%")
                 st.warning(f"🎯 **가장 많이 나온 스코어 (홈 : 원정) -** {best_score}")
@@ -231,10 +252,10 @@ try:
             st.info(f"{selected_date.strftime('%Y년 %m월 %d일')}에는 예정된 메이저리그 경기가 없습니다.")
             
     with tab2:
-        st.dataframe(df_pitcher)
+        st.dataframe(df_pitcher[['이름', '팀', 'ERA', '이닝', '출장', '선발']])
         
     with tab3:
-        st.dataframe(df_hitter)
+        st.dataframe(df_hitter[['이름', '팀', '타수', '홈런', '타율', 'OPS']])
 
 except Exception as e:
     st.error(f"오류 발생: {e}")
