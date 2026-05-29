@@ -1,49 +1,88 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="KBO AI 감독 모드", layout="wide")
+# 1. 페이지 설정 (MLB 스타일)
+st.set_page_config(page_title="KBO AI 스포츠 분석실", layout="wide")
 
-# 1. 데이터 로드 시 헤더 자동 지정 안 함
-@st.cache_data
-def load_data(url):
-    # header=None으로 해서 열 이름을 아예 무시하고 0,1,2... 번호로 읽습니다.
-    df = pd.read_csv(url, header=None)
-    # 데이터가 아닌 첫 행(기존 헤더)을 제거
-    df = df.iloc[1:]
-    return df
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: #e0e0e0; }
+    .stMetric { background-color: #161616; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b; }
+    </style>
+    """, unsafe_allow_html=True)
 
 PITCHER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
 BATTER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=779417540&single=true&output=csv"
 
-st.title("⚾ KBO AI 감독 모드 V2.6 (안정화 버전)")
+# 2. 강력한 데이터 정제 함수 (에러 원천 차단)
+@st.cache_data
+def load_clean_data(url, data_type):
+    # 헤더를 아예 읽지 않음 (중복 이름 에러 방지)
+    df = pd.read_csv(url, header=None, dtype=str)
+    
+    # 데이터가 없는 빈 줄 제거
+    df = df.dropna(subset=[1])
+    # KBO 홈피에서 긁어오며 섞인 '선수명' 글자가 있는 행 강제 삭제
+    df = df[df[1] != '선수명']
+    
+    # 무조건 위치(숫자)로 데이터 매핑
+    if data_type == 'pitcher':
+        df = df.rename(columns={1: '선수명', 2: '팀명', 3: 'ERA'})
+        df['ERA'] = pd.to_numeric(df['ERA'], errors='coerce')
+    elif data_type == 'batter':
+        df = df.rename(columns={1: '선수명', 2: '팀명'})
+        
+    return df
+
+st.title("⚾ KR KBO AI 감독 모드")
+st.caption("구글 시트 데이터베이스 동기화 완료")
 
 try:
-    df_p = load_data(PITCHER_URL)
-    df_h = load_data(BATTER_URL)
-    
-    # 2. 열 이름을 강제로 우리가 아는 순서로 부여 (위치 기반 매핑)
-    # 1번째(인덱스 1)=선수명, 2번째(인덱스 2)=팀명, 3번째(인덱스 3)=ERA
-    df_p.rename(columns={1: '선수명', 2: '팀명', 3: 'ERA'}, inplace=True)
-    
-    tab1, tab2 = st.tabs(["📊 투수 매치업", "⚾ 타자 리포트"])
-    
+    with st.spinner("데이터를 정제하고 불러오는 중..."):
+        df_p = load_clean_data(PITCHER_URL, 'pitcher')
+        df_h = load_clean_data(BATTER_URL, 'batter')
+
+    # 3. MLB 분석실과 동일한 탭 구조
+    tab1, tab2, tab3 = st.tabs(["🔥 매치업 분석", "⚾ 투수 스탯", "🏏 타자 스탯"])
+
     with tab1:
-        teams = df_p['팀명'].unique()
-        c1, c2 = st.columns(2)
-        with c1:
-            h_t = st.selectbox("홈 팀", teams)
-            h_p = st.selectbox("홈 선발", df_p[df_p['팀명']==h_t]['선수명'])
-        with c2:
-            a_t = st.selectbox("원정 팀", [t for t in teams if t != h_t])
-            a_p = st.selectbox("원정 선발", df_p[df_p['팀명']==a_t]['선수명'])
+        st.subheader("오늘의 KBO 승부 예측")
+        teams = df_p['팀명'].dropna().unique()
         
-        if st.button("🚀 승부 예측"):
-            h_era = pd.to_numeric(df_p[df_p['선수명']==h_p]['ERA'], errors='coerce').iloc[0]
-            a_era = pd.to_numeric(df_p[df_p['선수명']==a_p]['ERA'], errors='coerce').iloc[0]
-            st.metric("홈 팀 승리 확률", f"{(a_era/(h_era+a_era))*100:.1f}%")
+        col1, col2 = st.columns(2)
+        with col1:
+            h_team = st.selectbox("🏠 홈 팀", teams, key='h_t')
+            h_pitchers = df_p[df_p['팀명'] == h_team]['선수명'].dropna().unique()
+            h_p = st.selectbox("홈 선발투수", h_pitchers, key='h_p')
+
+        with col2:
+            a_team = st.selectbox("✈️ 어웨이 팀", [t for t in teams if t != h_team], key='a_t')
+            a_pitchers = df_p[df_p['팀명'] == a_team]['선수명'].dropna().unique()
+            a_p = st.selectbox("어웨이 선발투수", a_pitchers, key='a_p')
+
+        if st.button("🚀 AI 승률 계산"):
+            h_era = df_p[df_p['선수명'] == h_p]['ERA'].iloc[0]
+            a_era = df_p[df_p['선수명'] == a_p]['ERA'].iloc[0]
+
+            # 0이거나 에러난 데이터 보정 로직
+            h_era = 0.01 if pd.isna(h_era) or h_era == 0 else h_era
+            a_era = 0.01 if pd.isna(a_era) or a_era == 0 else a_era
+
+            h_prob = (a_era / (h_era + a_era)) * 100
+            a_prob = 100 - h_prob
+
+            st.markdown("---")
+            m1, m2 = st.columns(2)
+            m1.metric(f"🏠 {h_team} 승리 확률", f"{h_prob:.1f}%", f"선발 ERA: {h_era:.2f}", delta_color="inverse")
+            m2.metric(f"✈️ {a_team} 승리 확률", f"{a_prob:.1f}%", f"선발 ERA: {a_era:.2f}", delta_color="inverse")
 
     with tab2:
+        st.subheader("전체 투수 스탯")
+        st.dataframe(df_p, use_container_width=True)
+
+    with tab3:
+        st.subheader("전체 타자 스탯")
         st.dataframe(df_h, use_container_width=True)
 
 except Exception as e:
-    st.error(f"오류: {e}. 데이터 구조를 다시 확인해야 합니다.")
+    st.error(f"데이터 정제 중 치명적 오류 발생: {e}. 구글 시트에 데이터가 올바르게 있는지 확인하세요.")
