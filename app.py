@@ -386,7 +386,7 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
 # ==========================================
 elif league_choice == "🇰🇷 한국프로야구 (KBO)":
     st.header("🇰🇷 KBO AI 감독 모드 (수동 라인업 시뮬레이터 탑재)")
-    st.caption("✅ 구글 시트 데이터 기반 타선/마운드 정밀 분석 몬테카를로 시뮬레이션 적용")
+    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료")
 
     # KBO 구장 팩터
     KBO_PARK_FACTORS = {
@@ -443,13 +443,11 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 14: '데드볼', 15: '탈삼진', 16: '실점', 17: '자책점', 18: '이닝당출루허용'
             }
             df = df.rename(columns=cols)
-            # FIP 계산을 위한 데이터 정제
             df['소화이닝'] = pd.to_numeric(df['소화이닝'], errors='coerce').fillna(1.0)
             df['피홈런'] = pd.to_numeric(df['피홈런'], errors='coerce').fillna(0)
             df['볼넷'] = pd.to_numeric(df['볼넷'], errors='coerce').fillna(0)
             df['탈삼진'] = pd.to_numeric(df['탈삼진'], errors='coerce').fillna(0)
             df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.5)
-            # FIP 가상 계산 (FIP = (13*HR + 3*BB - 2*SO)/IP + 3.10)
             df['FIP'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝']) + 3.10 if x['소화이닝'] > 0 else 4.5, axis=1)
         else:
             cols = {
@@ -458,7 +456,6 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 14: '희생번트', 15: '희생플라이'
             }
             df = df.rename(columns=cols)
-            # 가상 OPS 계산 (출루율+장타율을 약식으로 타율 + (루타/타수) 로 산출)
             df['타율'] = pd.to_numeric(df['타율'], errors='coerce').fillna(0.0)
             df['타수'] = pd.to_numeric(df['타수'], errors='coerce').fillna(1)
             df['루타'] = pd.to_numeric(df['루타'], errors='coerce').fillna(0)
@@ -470,6 +467,34 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
         with st.spinner("KBO 일정표 및 구글 시트 데이터 로딩 중..."):
             df_p = load_kbo_data(PITCHER_URL, 'pitcher')
             df_h = load_kbo_data(BATTER_URL, 'batter')
+            
+            # 💡 이름표 달기 사전 생성 (이름 -> 스탯 텍스트)
+            p_format_dict = {}
+            for _, r in df_p.iterrows():
+                name = str(r['선수명'])
+                w = r.get('승리', '0')
+                l = r.get('패배', '0')
+                try: era = float(r.get('방어율', 4.50))
+                except: era = 4.50
+                try: ip = max(float(r.get('소화이닝', 1)), 0.1)
+                except: ip = 1.0
+                try: k = float(r.get('탈삼진', 0))
+                except: k = 0.0
+                try: bb = float(r.get('볼넷', 0))
+                except: bb = 0.0
+                # 9이닝당 평균 삼진(K/9), 평균 볼넷(BB/9) 계산
+                k9 = (k / ip) * 9
+                bb9 = (bb / ip) * 9
+                p_format_dict[name] = f"{name} ({w}승 {l}패 | ERA {era:.2f} | 9이닝 평균삼진 {k9:.1f} | 9이닝 평균볼넷 {bb9:.1f})"
+
+            b_format_dict = {}
+            for _, r in df_h.iterrows():
+                name = str(r['선수명'])
+                try: avg = float(r.get('타율', 0.000))
+                except: avg = 0.000
+                try: ops = float(r.get('가상OPS', 0.000))
+                except: ops = 0.000
+                b_format_dict[name] = f"{name} (타율 {avg:.3f} | OPS {ops:.3f})"
 
         tab1, tab2, tab3 = st.tabs(["🔥 매치업 분석", "⚾ 투수 기록실", "🏏 타자 기록실"])
 
@@ -491,21 +516,37 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
             teams = df_p['소속팀'].dropna().unique().tolist()
             col1, col2 = st.columns(2)
             
+            h_lineup = []
+            a_lineup = []
+            
             with col1:
-                h_team = st.selectbox("🏠 홈 팀", teams, key='ht')
+                st.error("🏠 **홈 팀 라인업 편성**")
+                h_team = st.selectbox("홈 팀", teams, key='ht')
                 h_p_list = df_p[df_p['소속팀'] == h_team]['선수명'].dropna().tolist()
-                h_p = st.selectbox("홈 선발투수", h_p_list if h_p_list else ["선수없음"], key='hp')
+                h_p = st.selectbox("선발투수", h_p_list if h_p_list else ["선수없음"], format_func=lambda x: p_format_dict.get(x, x), key='hp')
+                
+                st.markdown("##### 🏏 홈팀 1~9번 타순")
                 h_b_list = df_h[df_h['소속팀'] == h_team]['선수명'].dropna().tolist()
-                h_lineup = st.multiselect("홈팀 선발 타자 선택 (최대 9명)", h_b_list, default=h_b_list[:9] if len(h_b_list)>=9 else h_b_list, max_selections=9)
+                for i in range(1, 10):
+                    default_idx = i - 1 if i - 1 < len(h_b_list) else 0
+                    batter = st.selectbox(f"{i}번 타자", h_b_list if h_b_list else ["선수없음"], index=default_idx, format_func=lambda x: b_format_dict.get(x, x), key=f'h_b_{i}')
+                    h_lineup.append(batter)
                 
             with col2:
+                st.info("✈️ **원정 팀 라인업 편성**")
                 a_teams = [t for t in teams if t != h_team]
-                a_team = st.selectbox("✈️ 원정 팀", a_teams if a_teams else teams, key='at')
+                a_team = st.selectbox("원정 팀", a_teams if a_teams else teams, key='at')
                 a_p_list = df_p[df_p['소속팀'] == a_team]['선수명'].dropna().tolist()
-                a_p = st.selectbox("원정 선발투수", a_p_list if a_p_list else ["선수없음"], key='ap')
+                a_p = st.selectbox("선발투수", a_p_list if a_p_list else ["선수없음"], format_func=lambda x: p_format_dict.get(x, x), key='ap')
+                
+                st.markdown("##### 🏏 원정팀 1~9번 타순")
                 a_b_list = df_h[df_h['소속팀'] == a_team]['선수명'].dropna().tolist()
-                a_lineup = st.multiselect("원정팀 선발 타자 선택 (최대 9명)", a_b_list, default=a_b_list[:9] if len(a_b_list)>=9 else a_b_list, max_selections=9)
+                for i in range(1, 10):
+                    default_idx = i - 1 if i - 1 < len(a_b_list) else 0
+                    batter = st.selectbox(f"{i}번 타자", a_b_list if a_b_list else ["선수없음"], index=default_idx, format_func=lambda x: b_format_dict.get(x, x), key=f'a_b_{i}')
+                    a_lineup.append(batter)
 
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🚀 KBO 몬테카를로 시뮬레이션 실행 (10,000회)", use_container_width=True):
                 my_bar = st.progress(0, text="선택하신 타선의 기대 득점을 연산 중입니다...")
                 for p in range(100):
@@ -530,10 +571,10 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 h_ops = 0.720 if pd.isna(h_ops) else h_ops
                 a_ops = 0.720 if pd.isna(a_ops) else a_ops
 
-                # 3. KBO 파크팩터 적용 (없으면 1.0)
+                # 3. KBO 파크팩터 적용
                 pf = KBO_PARK_FACTORS.get(h_team, 1.00)
                 
-                # 4. 시뮬레이션 실행 (MLB 로직 차용)
+                # 4. 시뮬레이션 실행
                 h_win, a_win, top3_scores, h_eff, a_eff, _ = run_mlb_simulation(
                     h_fip, a_fip, 5.0, 5.0, h_ops, a_ops, 4.0, 4.0, 0.5, 0.5, pf
                 )
