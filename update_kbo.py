@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 def fetch_and_update_kbo():
     # ✅ 과거 날짜 강제 입력 (5월 29일 데이터 훔쳐오기)
-    date_string = "2026-05-29"
+    date_string = "20260529"
     
     # 2. 네이버 스포츠 KBO 일정 API 호출
     url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&date={date_string}"
