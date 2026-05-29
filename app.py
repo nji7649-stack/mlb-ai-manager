@@ -169,7 +169,7 @@ def load_kbo_schedule(target_date):
                         game_time = "취소됨"
                         h_starter, a_starter = "-", "-"
                     
-                    games.append({
+games.append({
                         '경기시간': game_time, '상태': status_str,
                         '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': h_starter,
                         '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': a_starter
@@ -177,10 +177,13 @@ def load_kbo_schedule(target_date):
         except Exception as e:
             pass 
             
-        return pd.DataFrame(games) # ✅ 엑셀 표(DataFrame) 형태로 확실하게 반환!
-if not df.empty:
+        df = pd.DataFrame(games) # ✅ 표 형태로 변환
+        
+        # ✅ 여기부터 함수 내부로 들여쓰기(Tab 키 사용)를 맞춰주세요!
+        if not df.empty:
             df = df.sort_values('경기시간').reset_index(drop=True)
-
+            
+        return df # ✅ 정렬된 표를 반환!
 @st.cache_data(ttl=60)
 def load_mlb_live_lineup(game_pk):
     try:
