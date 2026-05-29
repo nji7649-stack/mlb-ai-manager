@@ -416,7 +416,6 @@ elif league_choice == "한국프로야구 (KBO)":
     @st.cache_data(ttl=60)
     def load_kbo_schedule(target_date):
         date_str = target_date.strftime('%Y-%m-%d')
-        # ✅ 한글 지우고 진짜 변수명(date_str)으로 교체 완료!
         url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_str}&toDate={date_str}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -428,23 +427,42 @@ elif league_choice == "한국프로야구 (KBO)":
             if res.status_code == 200:
                 games_data = res.json().get('result', {}).get('games', [])
                 for game in games_data:
-                    # KBO 경기만 확실하게 필터링 (대소문자 차이 방어)
                     if str(game.get('categoryId', '')).lower() != 'kbo': continue
                     
                     h_score = game.get('homeTeamScore', 0)
                     a_score = game.get('awayTeamScore', 0)
                     status_code = game.get('statusCode', '')
+                    
                     if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
                     elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
                     elif status_code == 'CANCELED': status_str = "☔ 취소"
                     else: status_str = "⏳ 예정"
                     
                     game_time = game.get('gameStartTime') or game.get('gameTime') or 'TBD'
-                    if game_time != 'TBD' and len(game_time) >= 5: game_time = game_time[:5]
-                    
-                    # 숨겨진 선발 투수 데이터 철저하게 수집
+                    if game_time != 'TBD' and len(game_time) >= 5: 
+                        game_time = game_time[:5]
+                        
                     h_starter = game.get('homeStarterName') or game.get('homeStarter') or '미발표'
                     a_starter = game.get('awayStarterName') or game.get('awayStarter') or '미발표'
+                    
+                    if status_code == 'RESULT':
+                        game_time = "종료됨"
+                        w_pitcher = game.get('wPitcherName')
+                        l_pitcher = game.get('lPitcherName')
+                        
+                        if w_pitcher and l_pitcher:
+                            if h_score > a_score:
+                                h_starter, a_starter = f"승: {w_pitcher}", f"패: {l_pitcher}"
+                            elif a_score > h_score:
+                                h_starter, a_starter = f"패: {l_pitcher}", f"승: {w_pitcher}"
+                            else:
+                                h_starter, a_starter = "무승부", "무승부"
+                        else:
+                            h_starter, a_starter = "기록 마감", "기록 마감"
+                            
+                    elif status_code == 'CANCELED':
+                        game_time = "취소됨"
+                        h_starter, a_starter = "-", "-"
                     
                     games.append({
                         '경기시간': game_time, '상태': status_str,
@@ -452,8 +470,9 @@ elif league_choice == "한국프로야구 (KBO)":
                         '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': a_starter
                     })
         except Exception as e:
-            pass 
-        return pd.DataFrame(games)
+            print(f"데이터 로드 에러: {e}")
+            
+        return games
 
     PITCHER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
     BATTER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=779417540&single=true&output=csv"
