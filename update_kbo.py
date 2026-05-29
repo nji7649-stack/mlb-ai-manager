@@ -6,9 +6,12 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 
 def fetch_and_update_kbo():
-    # 1. 한국 시간 기준 오늘 날짜 구하기
-    kst_now = datetime.utcnow() + timedelta(hours=9)
-    date_string = kst_now.strftime('%Y-%m-%d')
+    # ❌ 기존 코드 (잠시 지우거나 맨 앞에 #을 붙여서 비활성화하세요)
+    # kst_now = datetime.utcnow() + timedelta(hours=9)
+    # date_string = kst_now.strftime('%Y-%m-%d')
+    
+    # ✅ 과거 날짜 강제 입력 (원하는 날짜를 직접 적어줍니다)
+    date_string = "2026-05-29"
     
     # 2. 네이버 스포츠 KBO 일정 API 호출
     url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&date={date_string}"
