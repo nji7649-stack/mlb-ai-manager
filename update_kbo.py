@@ -6,11 +6,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 
 def fetch_and_update_kbo():
-    # ❌ 기존 코드 (잠시 지우거나 맨 앞에 #을 붙여서 비활성화하세요)
-    # kst_now = datetime.utcnow() + timedelta(hours=9)
-    # date_string = kst_now.strftime('%Y-%m-%d')
-    
-    # ✅ 과거 날짜 강제 입력 (원하는 날짜를 직접 적어줍니다)
+    # ✅ 과거 날짜 강제 입력 (5월 29일 데이터 훔쳐오기)
     date_string = "2026-05-29"
     
     # 2. 네이버 스포츠 KBO 일정 API 호출
@@ -68,7 +64,7 @@ def fetch_and_update_kbo():
         
     client = gspread.authorize(creds)
     
-    # 💡 본인의 구글 스프레드시트 ID를 입력하세요 (주소창의 d/와 /edit 사이 문자열)
+    # 💡 본인의 구글 스프레드시트 ID (오타 수정 완료)
     SPREADSHEET_ID = "1NHbRs99lGLHE8IsiPDRmlgnHYol6dR4OgGX3HMCiYm0"
     
     try:
