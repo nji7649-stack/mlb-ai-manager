@@ -14,7 +14,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # 3. 고정 주소 설정 (매번 입력 안 해도 됩니다!)
-FIXED_CSV_URL = "여기에_구글_시트_웹_게시_CSV_주소를_한번만_복사해_넣으세요"
+FIXED_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
 
 st.sidebar.title("🎮 분석실 컨트롤 타워")
 st.sidebar.info("데이터가 자동으로 로드됩니다.")
