@@ -210,23 +210,35 @@ def run_mlb_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip,
     a_starter_weight = a_avg_ip / 9.0
     h_eff_fip = (h_fip * h_starter_weight) + (h_bp_fip * (1 - h_starter_weight))
     a_eff_fip = (a_fip * a_starter_weight) + (a_bp_fip * (1 - a_starter_weight))
+    
     h_momentum = 1.0 + (h_l10_rate - 0.5) * 0.1
     a_momentum = 1.0 + (a_l10_rate - 0.5) * 0.1
+    
     h_attack = (h_ops / 0.720) * h_momentum if h_ops > 0 else 1.0 * h_momentum
     a_attack = (a_ops / 0.720) * a_momentum if a_ops > 0 else 1.0 * a_momentum
+    
     h_expected_runs = ((a_eff_fip * h_attack) + 0.2) * park_factor
     a_expected_runs = (h_eff_fip * a_attack) * park_factor
+    
     h_wins, a_wins = 0, 0
     scores = []
+    
+    # 💡 동점 시 전력이 강한 팀이 연장전에서 승리할 확률 로직 (V4.2 추가)
+    h_tie_win_prob = h_expected_runs / (h_expected_runs + a_expected_runs) if (h_expected_runs + a_expected_runs) > 0 else 0.5
+
     for _ in range(num_sims):
-        h_score = max(0, int(random.gauss(h_expected_runs, 2.5)))
-        a_score = max(0, int(random.gauss(a_expected_runs, 2.5)))
+        # 💡 야구 스코어에 맞게 표준편차 2.3으로 소폭 하향 조정 (V4.2 추가)
+        h_score = max(0, int(random.gauss(h_expected_runs, 2.3)))
+        a_score = max(0, int(random.gauss(a_expected_runs, 2.3)))
+        
         if h_score == a_score:
-            if random.random() > 0.5: h_score += 1
+            if random.random() < h_tie_win_prob: h_score += 1
             else: a_score += 1
+            
         if h_score > a_score: h_wins += 1
         elif a_score > h_score: a_wins += 1
         scores.append(f"{h_score} : {a_score}")
+        
     top3_scores = Counter(scores).most_common(3)
     formatted_top3 = [f"{score} ({(count / num_sims) * 100:.1f}%)" for score, count in top3_scores]
     return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, formatted_top3, h_eff_fip, a_eff_fip, park_factor
@@ -386,7 +398,7 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
 # ==========================================
 elif league_choice == "🇰🇷 한국프로야구 (KBO)":
     st.header("🇰🇷 KBO AI 감독 모드 (수동 라인업 시뮬레이터 탑재)")
-    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료 (FIP 오류 패치)")
+    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료 (동점 처리 방식 고도화)")
 
     # KBO 구장 팩터
     KBO_PARK_FACTORS = {
@@ -437,7 +449,6 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
         df = df.dropna(subset=[1])
         df = df[df[1] != '선수명']
         
-        # 💡 분수로 된 이닝(예: 5 1/3)을 안전하게 소수로 바꾸는 함수
         def parse_innings(ip_val):
             try:
                 s = str(ip_val).strip()
@@ -460,9 +471,7 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
             df['탈삼진'] = pd.to_numeric(df['탈삼진'], errors='coerce').fillna(0)
             df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.50)
             
-            # FIP 가상 계산 (안전장치 추가: 소화이닝이 0이거나 FIP가 이상하면 방어율로 퉁침)
             df['FIP_계산'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝_num']) + 3.10 if x['소화이닝_num'] > 0 else x['방어율'], axis=1)
-            # 안전장치: 마이너스거나 15가 넘어가면 엑셀 오류로 간주하고 실제 ERA(방어율)로 덮어쓰기
             df['FIP'] = df.apply(lambda x: x['FIP_계산'] if 0 < x['FIP_계산'] < 15 else x['방어율'], axis=1)
         else:
             cols = {
@@ -507,7 +516,7 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 except: avg = 0.000
                 try: ops = float(r.get('가상OPS', 0.000))
                 except: ops = 0.000
-                b_format_dict[name] = f"{name} (타율 {avg:.3f} | OPS {ops:.3f})"
+                b_format_dict[name] = f"{name} (타율 {avg:.3f} | 가상OPS {ops:.3f})"
 
         tab1, tab2, tab3 = st.tabs(["🔥 매치업 분석", "⚾ 투수 기록실", "🏏 타자 기록실"])
 
@@ -617,7 +626,7 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
             st.dataframe(df_p, use_container_width=True)
             
         with tab3:
-            st.write("2026 시즌 타자 기록실")
+            st.write("2026 시즌 타자 기록실 (가상 OPS 계산 탑재)")
             st.dataframe(df_h, use_container_width=True)
 
     except Exception as e:
