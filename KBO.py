@@ -1,45 +1,41 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="KBO AI 분석실", layout="wide")
-st.title("⚾ KBO AI 전용 분석실")
+st.set_page_config(page_title="KBO 데이터 센터", layout="wide")
+st.title("⚾ KBO AI 전용 분석실 (Clean Version)")
 
-# 사이드바에서 데이터 세팅
-st.sidebar.header("데이터 세팅")
-h_url = st.sidebar.text_input("🔗 타자 CSV 주소:")
-p_url = st.sidebar.text_input("🔗 투수 CSV 주소:")
+csv_url = st.sidebar.text_input("🔗 구글 시트 CSV 주소 입력:")
 
-if h_url and p_url:
+if csv_url:
     try:
-        df_h = pd.read_csv(h_url)
-        df_p = pd.read_csv(p_url)
+        # 데이터 로드
+        df = pd.read_csv(csv_url)
         
-        # 필수 열 확인
-        required_p = ['팀', '이름', 'ERA']
-        required_h = ['팀', '이름', 'OPS']
+        # 투수/타자 자동 분리
+        df_pitcher = df[df['분류'] == '투수']
+        df_batter = df[df['분류'] == '타자']
         
-        if all(col in df_p.columns for col in required_p) and all(col in df_h.columns for col in required_h):
-            st.success("✅ 데이터 로드 성공!")
+        st.success("✅ 시트 로드 성공!")
+        
+        # 팀 리스트
+        teams = df['팀'].unique()
+        
+        # 선발 대진 설정
+        col1, col2 = st.columns(2)
+        with col1:
+            h_team = st.selectbox("🏠 홈 팀", teams)
+            h_p = st.selectbox("홈 투수", df_pitcher[df_pitcher['팀'] == h_team]['이름'])
+        with col2:
+            a_team = st.selectbox("✈️ 원정 팀", [t for t in teams if t != h_team])
+            a_p = st.selectbox("원정 투수", df_pitcher[df_pitcher['팀'] == a_team]['이름'])
+
+        if st.button("🚀 데이터 분석"):
+            h_era = df_pitcher[df_pitcher['이름'] == h_p]['ERA'].iloc[0]
+            a_era = df_pitcher[df_pitcher['이름'] == a_p]['ERA'].iloc[0]
             
-            teams = df_p['팀'].unique()
-            col1, col2 = st.columns(2)
-            with col1:
-                h_team = st.selectbox("홈 팀", teams)
-                h_p = st.selectbox("홈 선발", df_p[df_p['팀']==h_team]['이름'])
-            with col2:
-                a_team = st.selectbox("원정 팀", [t for t in teams if t != h_team])
-                a_p = st.selectbox("원정 선발", df_p[df_p['팀']==a_team]['이름'])
-            
-            if st.button("🚀 시뮬레이션"):
-                # 계산 엔진
-                h_era = df_p[df_p['이름']==h_p]['ERA'].iloc[0]
-                a_era = df_p[df_p['이름']==a_p]['ERA'].iloc[0]
-                h_ops = df_h[df_h['팀']==h_team]['OPS'].mean()
-                a_ops = df_h[df_h['팀']==a_team]['OPS'].mean()
-                
-                win_prob = (1 - (h_era / (h_era + a_era))) * 100
-                st.write(f"### 홈 승리 확률: {win_prob:.1f}%")
-        else:
-            st.error("데이터에 '팀', '이름', 'ERA', 'OPS' 열이 있는지 확인하세요.")
+            st.write(f"홈 투수 ERA: {h_era} | 원정 투수 ERA: {a_era}")
+            st.info("데이터 기반 분석 완료!")
+
     except Exception as e:
-        st.error(f"오류: {e}")
+        st.error(f"데이터를 읽는 중 오류 발생. 시트의 헤더('분류', '팀', '이름', 'ERA', 'OPS')를 확인하세요.")
+        st.write(f"에러 메시지: {e}")
