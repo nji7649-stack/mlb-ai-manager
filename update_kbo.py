@@ -6,12 +6,15 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 
 def fetch_and_update_kbo():
-   # ✅ 현재 시간 기준으로 매일매일 '오늘' 날짜를 자동으로 계산하게 복구!
+    # ✅ 1. 오늘 날짜 구하기 (종료일)
     kst_now = datetime.utcnow() + timedelta(hours=9)
-    date_string = kst_now.strftime('%Y-%m-%d')
+    today_string = kst_now.strftime('%Y-%m-%d')
     
-    # 2. 네이버 스포츠 KBO 일정 API 호출
-    url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_string}&toDate={date_string}"
+    # ✅ 2. 시즌 시작일 (시작일) - 2026년 3월 1일로 넉넉하게 세팅!
+    start_date = "2026-03-01"
+    
+    # ✅ 3. 네이버 스포츠 KBO 일정 API 호출 (시작일부터 오늘까지 누적)
+    url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={start_date}&toDate={today_string}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://sports.naver.com/"
@@ -31,6 +34,7 @@ def fetch_and_update_kbo():
             a_score = game.get('awayTeamScore', 0)
             status_code = game.get('statusCode', '')
             
+            # 상태값에 따른 텍스트 및 점수 표기
             if status_code == 'RESULT': status_str = f"종료 ({h_score}:{a_score})"
             elif status_code == 'STARTED': status_str = f"진행중 ({h_score}:{a_score})"
             elif status_code == 'CANCELED': status_str = "취소"
@@ -53,7 +57,7 @@ def fetch_and_update_kbo():
         print(f"네이버 데이터 수집 실패: {e}")
         return
 
-    # 3. 구글 시트 연동 및 인증 (깃허브 비밀 키 활용)
+    # 4. 구글 시트 연동 및 인증 (깃허브 비밀 키 활용)
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
     # 깃허브 서버 환경에서는 환경변수에서 키를 읽고, 로컬 테스트 시에는 json 파일을 읽음
@@ -65,7 +69,7 @@ def fetch_and_update_kbo():
         
     client = gspread.authorize(creds)
     
-    # 💡 본인의 구글 스프레드시트 ID (오타 수정 완료)
+    # 💡 본인의 구글 스프레드시트 ID
     SPREADSHEET_ID = "1NHbRs99lGLHE8IsiPDRmlgnHYol6dR4OgGX3HMCiYm0"
     
     try:
@@ -75,7 +79,7 @@ def fetch_and_update_kbo():
         # 기존 내용 초기화 후 데이터 덮어쓰기
         sheet.clear()
         sheet.append_rows(rows)
-        print(f"{date_string} KBO 일정 구글 시트 동기화 완료!")
+        print(f"{start_date} ~ {today_string} KBO 누적 일정 구글 시트 동기화 완료!")
     except Exception as e:
         print(f"구글 시트 업데이트 실패: {e}")
 
