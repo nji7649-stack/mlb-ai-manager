@@ -1,48 +1,57 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(layout="wide")
-st.title("⚾ KBO AI 통합 데이터 센터")
+# UI 설정
+st.set_page_config(page_title="KBO AI 통합 분석실 V2.0", layout="wide")
 
-csv_url = st.sidebar.text_input("🔗 웹에 게시된 CSV 주소:")
+# 스타일 적용 (다크 모드 스타일링)
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: #e0e0e0; }
+    .stMetric { background-color: #1e1e1e; padding: 20px; border-radius: 10px; border-left: 5px solid #deff9a; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("⚾ KBO AI 통합 분석실 V2.0")
+
+# 데이터 입력
+csv_url = st.sidebar.text_input("🔗 구글 시트 웹 게시 주소:")
 
 if csv_url:
     try:
-        # 데이터 로드
         df = pd.read_csv(csv_url)
-        st.success("✅ 데이터가 성공적으로 연결되었습니다!")
-        
-        # 1행에 '순위', '선수명', '팀명', 'ERA'가 있는 것을 그대로 활용
-        # 데이터 중 '순위'가 숫자인 행만 투수로 간주
-        df_p = df[pd.to_numeric(df['순위'], errors='coerce').notnull()]
+        df_p = df[pd.to_numeric(df['순위'], errors='coerce').notnull()] # 투수 데이터
+        df_h = df[pd.to_numeric(df['순위'], errors='coerce').isna()]    # 타자 데이터
         
         teams = df_p['팀명'].unique()
         
         col1, col2 = st.columns(2)
         with col1:
             h_team = st.selectbox("🏠 홈 팀", teams)
-            h_p = st.selectbox("홈 선발 투수", df_p[df_p['팀명'] == h_team]['선수명'])
+            h_p = st.selectbox("홈 선발", df_p[df_p['팀명'] == h_team]['선수명'])
+            # 팀 타선 평균 OPS 계산 (간이 모델)
+            h_ops = df_h[df_h['팀명'] == h_team]['OPS'].mean() if 'OPS' in df_h.columns else 0.750
         with col2:
             a_team = st.selectbox("✈️ 원정 팀", [t for t in teams if t != h_team])
-            a_p = st.selectbox("원정 선발 투수", df_p[df_p['팀명'] == a_team]['선수명'])
-            
-        if st.button("🚀 승부 예측 분석"):
-            # 투수 이름으로 ERA 찾기
+            a_p = st.selectbox("원정 선발", df_p[df_p['팀명'] == a_team]['선수명'])
+            a_ops = df_h[df_h['팀명'] == a_team]['OPS'].mean() if 'OPS' in df_h.columns else 0.750
+
+        if st.button("🚀 정밀 분석 실행"):
             h_era = float(df_p[df_p['선수명'] == h_p]['ERA'].iloc[0])
             a_era = float(df_p[df_p['선수명'] == a_p]['ERA'].iloc[0])
             
-            # 예측 로직 (ERA가 낮을수록 승률 높음)
-            # h_era가 0인 경우를 대비해 0.01로 보정
-            h_val = 0.01 if h_era == 0 else h_era
-            a_val = 0.01 if a_era == 0 else a_era
-            
-            win_prob = (a_val / (h_val + a_val)) * 100
+            # 투타 통합 승률 모델 (ERA와 OPS를 가중치 결합)
+            # 수식: (공격력 - 상대 투수력) / 합계 보정
+            score_h = (h_ops * 10) - h_era
+            score_a = (a_ops * 10) - a_era
+            win_prob = (score_h / (score_h + score_a)) * 100
             
             st.markdown("---")
-            st.write(f"### 📊 분석 리포트")
-            st.write(f"🏠 {h_team} 선발 {h_p} (ERA: {h_era})")
-            st.write(f"✈️ {a_team} 선발 {a_p} (ERA: {a_era})")
-            st.write(f"## 홈 팀 승리 예상 확률: **{win_prob:.1f}%**")
+            m1, m2 = st.columns(2)
+            m1.metric("홈 팀 승리 확률", f"{win_prob:.1f}%")
+            m2.metric("원정 팀 승리 확률", f"{100-win_prob:.1f}%")
             
+            st.write(f"📊 상세: 홈 OPS {h_ops:.3f} | 원정 선발 ERA {a_era:.2f}")
+
     except Exception as e:
-        st.error(f"데이터 연동 중 오류 발생. 시트의 헤더를 확인하세요: {e}")
+        st.error(f"데이터 로드 실패: 시트 구조를 확인하세요. ({e})")
