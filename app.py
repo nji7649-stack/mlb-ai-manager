@@ -118,45 +118,66 @@ def calculate_mlb_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
     return f"{h_odds:.2f}", f"{a_odds:.2f}"
 
 @st.cache_data(ttl=300)
-def load_mlb_schedule(target_date_kst):
-    # 💡 MLB 시차 반영: 한국 시간 기준에서 하루를 빼서 미국 현지 경기 날짜로 변환
-    us_date = target_date_kst - timedelta(days=1)
-    date_str = us_date.strftime("%Y-%m-%d")
-    schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
-    
-    res = requests.get(schedule_url).json()
-    games = []
-    df_h, df_p, team_bp_fip = load_mlb_all_data()
-    if 'dates' in res and len(res['dates']) > 0:
-        for game in res['dates'][0]['games']:
-            away_team = game['teams']['away']['team']['name']
-            home_team = game['teams']['home']['team']['name']
-            away_id = game['teams']['away']['team']['id']
-            home_id = game['teams']['home']['team']['id']
-            away_pitcher = game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
-            home_pitcher = game['teams']['home'].get('probablePitcher', {}).get('fullName', 'TBD')
-            game_time_utc = game.get('gameDate')
-            if game_time_utc:
-                utc_time = datetime.strptime(game_time_utc, "%Y-%m-%dT%H:%M:%SZ")
-                kst_time = utc_time + timedelta(hours=9)
-                time_str = kst_time.strftime("%H:%M")
-            else: time_str = "TBD"
-            status = game['status']['abstractGameState']
-            h_score = game['teams']['home'].get('score', 0)
-            a_score = game['teams']['away'].get('score', 0)
-            if status == 'Final': status_str = f"✅ 종료 ({h_score}:{a_score})"
-            elif status == 'Live': status_str = f"🔥 진행중 ({h_score}:{a_score})"
-            else: status_str = "⏳ 예정"
-            h_odds, a_odds = calculate_mlb_ai_odds(home_team, away_team, home_pitcher, away_pitcher, df_h, df_p, team_bp_fip)
-            home_display = f"<img src='https://www.mlbstatic.com/team-logos/{home_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{home_team}</b> <span style='color:#ffcc00; font-size:13px; margin-left:10px;'>[{h_odds}]</span>"
-            away_display = f"<img src='https://www.mlbstatic.com/team-logos/{away_id}.svg' width='22' style='vertical-align:middle; margin-right:8px;'> <b>{away_team}</b> <span style='color:#ffcc00; font-size:13px; margin-left:10px;'>[{a_odds}]</span>"
-            games.append({
-                '경기시간(KST)': time_str, '상태': status_str,
-                '홈 팀': home_team, '홈 ID': home_id, '홈 선발투수': home_pitcher, '홈표시': home_display,
-                '어웨이 팀 (원정)': away_team, '원정 ID': away_id, '어웨이 선발투수': away_pitcher, '원정표시': away_display,
-                'gamePk': game.get('gamePk')
-            })
-    df = pd.DataFrame(games)
+def load_kbo_schedule(target_date):
+        date_str = target_date.strftime('%Y-%m-%d')
+        url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_str}&toDate={date_str}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://sports.naver.com/"
+        }
+        games = []
+        try:
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                games_data = res.json().get('result', {}).get('games', [])
+                for game in games_data:
+                    if str(game.get('categoryId', '')).lower() != 'kbo': continue
+                    
+                    h_score = game.get('homeTeamScore', 0)
+                    a_score = game.get('awayTeamScore', 0)
+                    status_code = game.get('statusCode', '')
+                    
+                    if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
+                    elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
+                    elif status_code == 'CANCELED': status_str = "☔ 취소"
+                    else: status_str = "⏳ 예정"
+                    
+                    game_time = game.get('gameStartTime') or game.get('gameTime') or 'TBD'
+                    if game_time != 'TBD' and len(game_time) >= 5: 
+                        game_time = game_time[:5]
+                        
+                    h_starter = game.get('homeStarterName') or game.get('homeStarter') or '미발표'
+                    a_starter = game.get('awayStarterName') or game.get('awayStarter') or '미발표'
+                    
+                    # 🔥 과거 경기 맞춤형 데이터 처리
+                    if status_code == 'RESULT':
+                        game_time = "종료됨"
+                        w_pitcher = game.get('wPitcherName')
+                        l_pitcher = game.get('lPitcherName')
+                        
+                        if w_pitcher and l_pitcher:
+                            if h_score > a_score:
+                                h_starter, a_starter = f"승: {w_pitcher}", f"패: {l_pitcher}"
+                            elif a_score > h_score:
+                                h_starter, a_starter = f"패: {l_pitcher}", f"승: {w_pitcher}"
+                            else:
+                                h_starter, a_starter = "무승부", "무승부"
+                        else:
+                            h_starter, a_starter = "기록 마감", "기록 마감"
+                            
+                    elif status_code == 'CANCELED':
+                        game_time = "취소됨"
+                        h_starter, a_starter = "-", "-"
+                    
+                    games.append({
+                        '경기시간': game_time, '상태': status_str,
+                        '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': h_starter,
+                        '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': a_starter
+                    })
+        except Exception as e:
+            pass 
+            
+        return pd.DataFrame(games) # ✅ 엑셀 표(DataFrame) 형태로 확실하게 반환!
     if not df.empty: df = df.sort_values('경기시간(KST)').reset_index(drop=True)
     return df
 
