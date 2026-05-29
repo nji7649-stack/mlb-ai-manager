@@ -1,3 +1,4 @@
+from nba_api.stats.endpoints import leaguegamefinder
 import streamlit as st
 import pandas as pd
 import requests
@@ -662,3 +663,15 @@ elif league_choice == "NBA (농구)":
         st.dataframe(df_nba, use_container_width=True)
     else:
         st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
+        
+@st.cache_data(ttl=3600)
+def load_nba_schedule(target_date):
+    date_str = target_date.strftime('%m/%d/%Y')
+    gamefinder = leaguegamefinder.LeagueGameFinder(date_from_nullable=date_str, date_to_nullable=date_str)
+    games = gamefinder.get_data_frames()[0]
+    if games.empty:
+        return pd.DataFrame()
+    games = games.drop_duplicates(subset=['GAME_ID'])
+    games = games[['GAME_DATE', 'MATCHUP', 'WL', 'PTS']]
+    games.columns = ['경기날짜', '대진', '결과', '득점']
+    return games
