@@ -10,7 +10,7 @@ def fetch_and_update_kbo():
     date_string = "2026-05-29"
     
     # 2. 네이버 스포츠 KBO 일정 API 호출
-    url = f"https://api-gw.sports.naver.com/schedule/games?categoryId=kbo&date={date_string}"
+    url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_string}&toDate={date_string}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://sports.naver.com/"
