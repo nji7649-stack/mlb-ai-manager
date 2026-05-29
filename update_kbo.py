@@ -74,7 +74,7 @@ def fetch_and_update_kbo():
         
         # 기존 내용 초기화 후 데이터 덮어쓰기
         sheet.clear()
-        sheet.update("A1")
+       sheet.update(range_name="A1", values=rows)
         print(f"{date_string} KBO 일정 구글 시트 동기화 완료!")
     except Exception as e:
         print(f"구글 시트 업데이트 실패: {e}")
