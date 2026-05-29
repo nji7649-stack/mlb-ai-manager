@@ -66,7 +66,7 @@ def fetch_and_update_kbo():
     client = gspread.authorize(creds)
     
     # 💡 본인의 구글 스프레드시트 ID를 입력하세요 (주소창의 d/와 /edit 사이 문자열)
-    SPREADSHEET_ID = "1NHbRs99IGLHE8lsiPDRmlgnHYol6dR4OgGX3HMCiYm0" 
+    SPREADSHEET_ID = "1NHbRs99IGLHE8lsiPDRmlgnHYol6dR4OgGX3HMCiYm0"
     
     try:
         doc = client.open_by_key(SPREADSHEET_ID)
