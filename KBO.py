@@ -2,40 +2,47 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(layout="wide")
-st.title("⚾ KBO AI 데이터 센터 (홈페이지 복사 전용)")
+st.title("⚾ KBO AI 통합 데이터 센터")
 
-# 주소 입력창 2개로 복구 (투수/타자 각각)
-st.sidebar.header("데이터 세팅")
-p_url = st.sidebar.text_input("🔗 투수 시트 웹 게시 주소:")
-h_url = st.sidebar.text_input("🔗 타자 시트 웹 게시 주소:")
+csv_url = st.sidebar.text_input("🔗 웹에 게시된 CSV 주소:")
 
-if p_url and h_url:
+if csv_url:
     try:
-        # 감독님의 원본 헤더를 그대로 사용 (코드 내에서 이름을 맞춤)
-        df_p = pd.read_csv(p_url)
-        df_h = pd.read_csv(h_url)
+        # 데이터 로드
+        df = pd.read_csv(csv_url)
+        st.success("✅ 데이터가 성공적으로 연결되었습니다!")
         
-        st.success("✅ 시트 로드 성공!")
+        # 1행에 '순위', '선수명', '팀명', 'ERA'가 있는 것을 그대로 활용
+        # 데이터 중 '순위'가 숫자인 행만 투수로 간주
+        df_p = df[pd.to_numeric(df['순위'], errors='coerce').notnull()]
         
-        # '팀명'이라는 열 이름이 그대로 있다면 사용
         teams = df_p['팀명'].unique()
         
         col1, col2 = st.columns(2)
         with col1:
             h_team = st.selectbox("🏠 홈 팀", teams)
-            # '선수명'이라는 열 이름 그대로 사용
-            h_p = st.selectbox("홈 투수", df_p[df_p['팀명'] == h_team]['선수명'])
+            h_p = st.selectbox("홈 선발 투수", df_p[df_p['팀명'] == h_team]['선수명'])
         with col2:
             a_team = st.selectbox("✈️ 원정 팀", [t for t in teams if t != h_team])
-            a_p = st.selectbox("원정 투수", df_p[df_p['팀명'] == a_team]['선수명'])
+            a_p = st.selectbox("원정 선발 투수", df_p[df_p['팀명'] == a_team]['선수명'])
             
-        if st.button("🚀 승부 예측"):
-            h_era = df_p[df_p['선수명'] == h_p]['ERA'].iloc[0]
-            a_era = df_p[df_p['선수명'] == a_p]['ERA'].iloc[0]
+        if st.button("🚀 승부 예측 분석"):
+            # 투수 이름으로 ERA 찾기
+            h_era = float(df_p[df_p['선수명'] == h_p]['ERA'].iloc[0])
+            a_era = float(df_p[df_p['선수명'] == a_p]['ERA'].iloc[0])
             
-            prob = (a_era / (h_era + a_era)) * 100
-            st.write(f"### 🏠 {h_team} 승리 확률: {prob:.1f}%")
+            # 예측 로직 (ERA가 낮을수록 승률 높음)
+            # h_era가 0인 경우를 대비해 0.01로 보정
+            h_val = 0.01 if h_era == 0 else h_era
+            a_val = 0.01 if a_era == 0 else a_era
+            
+            win_prob = (a_val / (h_val + a_val)) * 100
+            
+            st.markdown("---")
+            st.write(f"### 📊 분석 리포트")
+            st.write(f"🏠 {h_team} 선발 {h_p} (ERA: {h_era})")
+            st.write(f"✈️ {a_team} 선발 {a_p} (ERA: {a_era})")
+            st.write(f"## 홈 팀 승리 예상 확률: **{win_prob:.1f}%**")
             
     except Exception as e:
-        st.error(f"데이터 오류 발생: 구글 시트의 1행(헤더)에 '팀명', '선수명', 'ERA'라는 글자가 있는지 확인하세요.")
-        st.write(f"상세 에러: {e}")
+        st.error(f"데이터 연동 중 오류 발생. 시트의 헤더를 확인하세요: {e}")
