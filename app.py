@@ -416,7 +416,8 @@ elif league_choice == "한국프로야구 (KBO)":
     @st.cache_data(ttl=60)
     def load_kbo_schedule(target_date):
         date_str = target_date.strftime('%Y-%m-%d')
-        url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={선택한날짜변수}&toDate={선택한날짜변수}"
+        # ✅ 한글 지우고 진짜 변수명(date_str)으로 교체 완료!
+        url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_str}&toDate={date_str}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://sports.naver.com/"
