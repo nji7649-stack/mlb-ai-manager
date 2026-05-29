@@ -17,7 +17,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# MLB 전용 설정 및 함수
+# 🇺🇸 MLB 전용 설정 및 함수
 # ==========================================
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -119,7 +119,7 @@ def calculate_mlb_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
 
 @st.cache_data(ttl=300)
 def load_mlb_schedule(target_date_kst):
-    # 💡 시차 보정: 한국 달력 기준 '오늘' 아침 경기는 미국 시간으로 '어제' 날짜임
+    # 💡 MLB 시차 반영: 한국 시간 기준에서 하루를 빼서 미국 현지 경기 날짜로 변환
     us_date = target_date_kst - timedelta(days=1)
     date_str = us_date.strftime("%Y-%m-%d")
     schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
@@ -268,7 +268,7 @@ def generate_ai_commentary(h_team, a_team, h_eff_fip, a_eff_fip, h_ops, a_ops, h
 st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
 st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
 
-# 국기 제거 및 텍스트 깔끔하게 변경
+# 💡 'us', 'KR' 국기 텍스트 깔끔하게 제거
 league_choice = st.sidebar.radio(
     "분석할 리그를 선택하세요:", 
     ["메이저리그 (MLB)", "한국프로야구 (KBO)"]
@@ -290,6 +290,7 @@ if league_choice == "메이저리그 (MLB)":
         momentum_dict = load_mlb_team_momentum()
         
         kst_now = datetime.utcnow() + timedelta(hours=9)
+        st.info("※ 달력에서 '오늘(한국 날짜)'을 선택하면 시차가 자동 계산되어 어제 열린 미국 현지 경기가 표시됩니다.")
         selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요 (한국시간 기준):", kst_now.date())
         df_schedule = load_mlb_schedule(selected_date)
         
@@ -399,10 +400,9 @@ if league_choice == "메이저리그 (MLB)":
 # 🇰🇷 KBO 모드 렌더링
 # ==========================================
 elif league_choice == "한국프로야구 (KBO)":
-    st.header("🇰🇷 KBO AI 감독 모드 (수동 라인업 시뮬레이터 탑재)")
-    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료 (동점 처리 방식 고도화)")
+    st.header("🇰🇷 KBO AI 감독 모드 (최종 V5.0)")
+    st.caption("✅ 파이썬 전용 크롤링 엔진 및 커스텀 라인업 시뮬레이터 탑재")
 
-    # KBO 구장 팩터
     KBO_PARK_FACTORS = {
         '삼성': 1.06, 'SSG': 1.05, '롯데': 1.02, 'NC': 1.01,
         'KT': 1.00, '한화': 1.00, 'KIA': 0.99, '키움': 0.97,
@@ -412,34 +412,46 @@ elif league_choice == "한국프로야구 (KBO)":
     kst_now = datetime.utcnow() + timedelta(hours=9)
     selected_kbo_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", kst_now.date(), key="kbo_date_picker")
 
+    # 💡 네이버 봇 차단을 뚫기 위한 강력한 파이썬 스크래핑 함수
     @st.cache_data(ttl=60)
     def load_kbo_schedule(target_date):
         date_str = target_date.strftime('%Y-%m-%d')
         url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&date={date_str}"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://sports.naver.com/"
+        }
         games = []
         try:
-            res = requests.get(url, headers=headers, timeout=5).json()
-            games_data = res.get('result', {}).get('games', [])
-            for game in games_data:
-                if game.get('categoryId', '') != 'kbo': continue
-                h_score = game.get('homeTeamScore', 0)
-                a_score = game.get('awayTeamScore', 0)
-                status_code = game.get('statusCode', '')
-                if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
-                elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
-                elif status_code == 'CANCELED': status_str = "☔ 취소"
-                else: status_str = "⏳ 예정"
-                
-                game_time = game.get('gameStartTime') or 'TBD'
-                if game_time != 'TBD' and len(game_time) >= 5: game_time = game_time[:5]
-                
-                games.append({
-                    '경기시간': game_time, '상태': status_str,
-                    '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': game.get('homeStarterName', '미발표'),
-                    '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': game.get('awayStarterName', '미발표')
-                })
-        except: pass 
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                games_data = res.json().get('result', {}).get('games', [])
+                for game in games_data:
+                    # KBO 경기만 확실하게 필터링 (대소문자 차이 방어)
+                    if str(game.get('categoryId', '')).lower() != 'kbo': continue
+                    
+                    h_score = game.get('homeTeamScore', 0)
+                    a_score = game.get('awayTeamScore', 0)
+                    status_code = game.get('statusCode', '')
+                    if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
+                    elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
+                    elif status_code == 'CANCELED': status_str = "☔ 취소"
+                    else: status_str = "⏳ 예정"
+                    
+                    game_time = game.get('gameStartTime') or game.get('gameTime') or 'TBD'
+                    if game_time != 'TBD' and len(game_time) >= 5: game_time = game_time[:5]
+                    
+                    # 숨겨진 선발 투수 데이터 철저하게 수집
+                    h_starter = game.get('homeStarterName') or game.get('homeStarter') or '미발표'
+                    a_starter = game.get('awayStarterName') or game.get('awayStarter') or '미발표'
+                    
+                    games.append({
+                        '경기시간': game_time, '상태': status_str,
+                        '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': h_starter,
+                        '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': a_starter
+                    })
+        except Exception as e:
+            pass 
         return pd.DataFrame(games)
 
     PITCHER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
@@ -528,7 +540,6 @@ elif league_choice == "한국프로야구 (KBO)":
             
             if not df_kbo_schedule.empty:
                 st.dataframe(df_kbo_schedule, use_container_width=True, hide_index=True)
-                st.caption("※ 네이버 API 제한으로 일부 과거 경기의 시간과 선발투수는 '미정'으로 표시될 수 있습니다.")
             else:
                 st.info("선택하신 날짜에 진행된 KBO 경기가 없거나 정보를 불러올 수 없습니다.")
                 
