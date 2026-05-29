@@ -35,8 +35,20 @@ try:
         df_h = load_kbo_data(BATTER_URL)
 
     # 3. 필요한 데이터에만 이름 강제 부여
-    df_p = df_p.rename(columns={1: '선수명', 2: '팀명', 3: 'ERA'})
-    df_h = df_h.rename(columns={1: '선수명', 2: '팀명'})
+  # 3. KBO 공식 스탯 이름으로 전체 매핑 (숫자 -> 야구 용어)
+    pitcher_cols = {
+        0: '순위', 1: '선수명', 2: '팀명', 3: 'ERA', 4: 'G', 5: 'W', 6: 'L', 
+        7: 'SV', 8: 'HLD', 9: '승률', 10: 'IP', 11: 'H', 12: 'HR', 13: 'BB', 
+        14: 'HBP', 15: 'SO', 16: 'R', 17: 'ER', 18: 'WHIP'
+    }
+    batter_cols = {
+        0: '순위', 1: '선수명', 2: '팀명', 3: 'AVG(타율)', 4: 'G', 5: '타석', 6: '타수', 
+        7: '득점', 8: '안타', 9: '2루타', 10: '3루타', 11: '홈런', 12: '루타', 13: '타점', 
+        14: '희생번트', 15: '희생플라이'
+    }
+
+    df_p = df_p.rename(columns=pitcher_cols)
+    df_h = df_h.rename(columns=batter_cols)
 
     # 4. MLB 스타일 탭 구성
     tab1, tab2, tab3 = st.tabs(["🔥 매치업 분석", "⚾ 투수 스탯", "🏏 타자 스탯"])
