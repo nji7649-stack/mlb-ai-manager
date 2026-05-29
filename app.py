@@ -178,8 +178,8 @@ def load_kbo_schedule(target_date):
             pass 
             
         return pd.DataFrame(games) # ✅ 엑셀 표(DataFrame) 형태로 확실하게 반환!
-    if not df.empty: df = df.sort_values('경기시간(KST)').reset_index(drop=True)
-    return df
+if not df.empty:
+            df = df.sort_values('경기시간').reset_index(drop=True)
 
 @st.cache_data(ttl=60)
 def load_mlb_live_lineup(game_pk):
