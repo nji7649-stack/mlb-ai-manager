@@ -414,8 +414,9 @@ elif league_choice == "한국프로야구 (KBO)":
 
     # 💡 네이버 봇 차단을 뚫기 위한 강력한 파이썬 스크래핑 함수
     @st.cache_data(ttl=60)
-   def load_kbo_schedule(target_date):
+    def load_kbo_schedule(target_date):
         date_str = target_date.strftime('%Y-%m-%d')
+        # ✅ 한글 지우고 진짜 변수명(date_str)으로 교체 완료!
         url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_str}&toDate={date_str}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -433,52 +434,23 @@ elif league_choice == "한국프로야구 (KBO)":
                     h_score = game.get('homeTeamScore', 0)
                     a_score = game.get('awayTeamScore', 0)
                     status_code = game.get('statusCode', '')
-                    
-                    # 1. 상태 텍스트 설정
                     if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
                     elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
                     elif status_code == 'CANCELED': status_str = "☔ 취소"
                     else: status_str = "⏳ 예정"
                     
-                    # 2. 기본 경기 시간 및 선발 투수 가져오기
                     game_time = game.get('gameStartTime') or game.get('gameTime') or 'TBD'
-                    if game_time != 'TBD' and len(game_time) >= 5: 
-                        game_time = game_time[:5]
-                        
+                    if game_time != 'TBD' and len(game_time) >= 5: game_time = game_time[:5]
+                    
+                    # 숨겨진 선발 투수 데이터 철저하게 수집
                     h_starter = game.get('homeStarterName') or game.get('homeStarter') or '미발표'
                     a_starter = game.get('awayStarterName') or game.get('awayStarter') or '미발표'
-                    
-                    # 🔥 3. 과거 경기(종료) 및 우천 취소 맞춤형 데이터 덮어쓰기!
-                    if status_code == 'RESULT':
-                        game_time = "종료됨" # TBD 대신 깔끔하게 변경
-                        
-                        # 네이버 API에 승/패 투수가 있으면 가져오고, 없으면 '결과 마감' 처리
-                        w_pitcher = game.get('wPitcherName')
-                        l_pitcher = game.get('lPitcherName')
-                        
-                        if w_pitcher and l_pitcher:
-                            if h_score > a_score:
-                                h_starter, a_starter = f"승: {w_pitcher}", f"패: {l_pitcher}"
-                            elif a_score > h_score:
-                                h_starter, a_starter = f"패: {l_pitcher}", f"승: {w_pitcher}"
-                            else:
-                                h_starter, a_starter = "무승부", "무승부"
-                        else:
-                            h_starter, a_starter = "기록 마감", "기록 마감"
-                            
-                    elif status_code == 'CANCELED':
-                        game_time = "취소됨"
-                        h_starter, a_starter = "-", "-"
                     
                     games.append({
                         '경기시간': game_time, '상태': status_str,
                         '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': h_starter,
                         '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': a_starter
                     })
-        except Exception as e:
-            print(f"데이터 로드 에러: {e}")
-            
-        return games
         except Exception as e:
             pass 
         return pd.DataFrame(games)
