@@ -386,18 +386,17 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
 # ==========================================
 elif league_choice == "🇰🇷 한국프로야구 (KBO)":
     st.header("🇰🇷 KBO AI 감독 모드 (통합 완료)")
-    st.caption("✅ 네이버 스포츠 KBO 전용 API 연동 및 달력 기능 추가 완료")
+    st.caption("✅ 네이버 스포츠 KBO 실시간 연동 및 달력 기능 추가 완료")
 
-    # 💡 캘린더 기능 추가 (오늘 날짜 기본 세팅)
     kst_now = datetime.utcnow() + timedelta(hours=9)
     selected_kbo_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", kst_now.date(), key="kbo_date_picker")
 
-    # 1. KBO 실시간 일정 & 스코어 (네이버 전용 상세 API)
+    # 1. KBO 실시간 일정 & 스코어 (V3.1의 안정적인 API 복구 + 방어 코드 추가)
     @st.cache_data(ttl=60)
     def load_kbo_schedule(target_date):
         date_str = target_date.strftime('%Y-%m-%d')
-        # 시간과 선발투수 데이터가 완벽히 들어있는 KBO 전용 상세 주소로 교체
-        url = f"https://api-gw.sports.naver.com/schedule/games/kbo?filter=ALL&fromDate={date_str}&toDate={date_str}"
+        # V3.1에서 팀명이 확실하게 나오던 주소 복구
+        url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&date={date_str}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://sports.naver.com/"
@@ -406,31 +405,39 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
         games = []
         try:
             res = requests.get(url, headers=headers, timeout=5).json()
-            if 'result' in res and 'games' in res['result']:
-                for game in res['result']['games']:
-                    status_code = game.get('statusCode', '')
-                    # None 값이 들어올 경우 0으로 안전하게 처리
-                    h_score = game.get('homeTeamScore') or 0
-                    a_score = game.get('awayTeamScore') or 0
+            games_data = res.get('result', {}).get('games', [])
+            
+            for game in games_data:
+                # kbo 만 필터링
+                if game.get('categoryId', '') != 'kbo':
+                    continue
                     
-                    if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
-                    elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
-                    elif status_code == 'CANCELED': status_str = "☔ 취소"
-                    else: status_str = "⏳ 예정"
+                status_code = game.get('statusCode', '')
+                h_score = game.get('homeTeamScore', 0)
+                a_score = game.get('awayTeamScore', 0)
+                
+                if status_code == 'RESULT': status_str = f"✅ 종료 ({h_score}:{a_score})"
+                elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
+                elif status_code == 'CANCELED': status_str = "☔ 취소"
+                else: status_str = "⏳ 예정"
+                
+                # 💡 시간 정보 추출 (네이버가 숨겨놓는 모든 키워드 탐색)
+                game_time = game.get('gameStartTime') or game.get('gameTime') or game.get('time') or '시간미정'
+                if game_time != '시간미정' and len(game_time) >= 5:
+                    game_time = game_time[:5]
                     
-                    # 빈 값이 올 경우를 대비한 방어 코드
-                    game_time = game.get('gameStartTime') or 'TBD'
-                    if len(game_time) >= 5 and game_time != 'TBD':
-                        game_time = game_time[:5]
-                        
-                    games.append({
-                        '경기시간': game_time,
-                        '상태': status_str,
-                        '홈 팀': game.get('homeTeamName') or '홈팀',
-                        '홈 선발투수': game.get('homeStarterName') or '미정',
-                        '원정 팀': game.get('awayTeamName') or '원정팀',
-                        '원정 선발투수': game.get('awayStarterName') or '미정'
-                    })
+                # 💡 투수 정보 추출 (네이버가 숨겨놓는 모든 키워드 탐색)
+                h_pitcher = game.get('homeStarterName') or game.get('homeStarter') or game.get('homeTeam', {}).get('starterName') or '미발표'
+                a_pitcher = game.get('awayStarterName') or game.get('awayStarter') or game.get('awayTeam', {}).get('starterName') or '미발표'
+                
+                games.append({
+                    '경기시간': game_time,
+                    '상태': status_str,
+                    '홈 팀': game.get('homeTeamName', '홈팀'),
+                    '홈 선발투수': h_pitcher,
+                    '원정 팀': game.get('awayTeamName', '원정팀'),
+                    '원정 선발투수': a_pitcher
+                })
         except Exception as e:
             pass 
             
@@ -475,11 +482,11 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
             if not df_kbo_schedule.empty:
                 st.dataframe(df_kbo_schedule, use_container_width=True, hide_index=True)
             else:
-                st.info("선택하신 날짜에 진행된 KBO 경기가 없습니다.")
+                st.info("선택하신 날짜에 진행된 KBO 경기가 없거나 정보를 불러올 수 없습니다.")
                 
             st.markdown("<br><hr>", unsafe_allow_html=True)
             
-            st.subheader("🔥 선택하신 날짜의 승부 예측 시뮬레이션")
+            st.subheader("🔥 선택하신 매치업 승부 예측")
             teams = df_p['소속팀'].dropna().unique().tolist()
             col1, col2 = st.columns(2)
             
