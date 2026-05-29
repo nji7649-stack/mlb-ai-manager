@@ -386,7 +386,7 @@ if league_choice == "🇺🇸 메이저리그 (MLB)":
 # ==========================================
 elif league_choice == "🇰🇷 한국프로야구 (KBO)":
     st.header("🇰🇷 KBO AI 감독 모드 (수동 라인업 시뮬레이터 탑재)")
-    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료")
+    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료 (FIP 오류 패치)")
 
     # KBO 구장 팩터
     KBO_PARK_FACTORS = {
@@ -436,6 +436,17 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
         df = pd.read_csv(url, header=None, dtype=str)
         df = df.dropna(subset=[1])
         df = df[df[1] != '선수명']
+        
+        # 💡 분수로 된 이닝(예: 5 1/3)을 안전하게 소수로 바꾸는 함수
+        def parse_innings(ip_val):
+            try:
+                s = str(ip_val).strip()
+                if '1/3' in s: return float(s.split()[0]) + 0.333 if ' ' in s else 0.333
+                if '2/3' in s: return float(s.split()[0]) + 0.667 if ' ' in s else 0.667
+                return float(s)
+            except:
+                return 1.0
+
         if data_type == 'pitcher':
             cols = {
                 0: '순위', 1: '선수명', 2: '소속팀', 3: '방어율', 4: '경기수', 5: '승리', 6: '패배', 
@@ -443,12 +454,16 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 14: '데드볼', 15: '탈삼진', 16: '실점', 17: '자책점', 18: '이닝당출루허용'
             }
             df = df.rename(columns=cols)
-            df['소화이닝'] = pd.to_numeric(df['소화이닝'], errors='coerce').fillna(1.0)
+            df['소화이닝_num'] = df['소화이닝'].apply(parse_innings)
             df['피홈런'] = pd.to_numeric(df['피홈런'], errors='coerce').fillna(0)
             df['볼넷'] = pd.to_numeric(df['볼넷'], errors='coerce').fillna(0)
             df['탈삼진'] = pd.to_numeric(df['탈삼진'], errors='coerce').fillna(0)
-            df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.5)
-            df['FIP'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝']) + 3.10 if x['소화이닝'] > 0 else 4.5, axis=1)
+            df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.50)
+            
+            # FIP 가상 계산 (안전장치 추가: 소화이닝이 0이거나 FIP가 이상하면 방어율로 퉁침)
+            df['FIP_계산'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝_num']) + 3.10 if x['소화이닝_num'] > 0 else x['방어율'], axis=1)
+            # 안전장치: 마이너스거나 15가 넘어가면 엑셀 오류로 간주하고 실제 ERA(방어율)로 덮어쓰기
+            df['FIP'] = df.apply(lambda x: x['FIP_계산'] if 0 < x['FIP_계산'] < 15 else x['방어율'], axis=1)
         else:
             cols = {
                 0: '순위', 1: '선수명', 2: '소속팀', 3: '타율', 4: '경기수', 5: '타석', 6: '타수', 
@@ -468,7 +483,6 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
             df_p = load_kbo_data(PITCHER_URL, 'pitcher')
             df_h = load_kbo_data(BATTER_URL, 'batter')
             
-            # 💡 이름표 달기 사전 생성 (이름 -> 스탯 텍스트)
             p_format_dict = {}
             for _, r in df_p.iterrows():
                 name = str(r['선수명'])
@@ -476,13 +490,12 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                 l = r.get('패배', '0')
                 try: era = float(r.get('방어율', 4.50))
                 except: era = 4.50
-                try: ip = max(float(r.get('소화이닝', 1)), 0.1)
+                try: ip = max(float(r.get('소화이닝_num', 1)), 0.1)
                 except: ip = 1.0
                 try: k = float(r.get('탈삼진', 0))
                 except: k = 0.0
                 try: bb = float(r.get('볼넷', 0))
                 except: bb = 0.0
-                # 9이닝당 평균 삼진(K/9), 평균 볼넷(BB/9) 계산
                 k9 = (k / ip) * 9
                 bb9 = (bb / ip) * 9
                 p_format_dict[name] = f"{name} ({w}승 {l}패 | ERA {era:.2f} | 9이닝 평균삼진 {k9:.1f} | 9이닝 평균볼넷 {bb9:.1f})"
@@ -554,27 +567,22 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                     my_bar.progress(p + 1)
                 my_bar.empty()
 
-                # 1. 투수 FIP 구하기
                 h_p_stat = df_p[df_p['선수명'] == h_p]
                 h_fip = h_p_stat['FIP'].iloc[0] if not h_p_stat.empty else 4.50
                 a_p_stat = df_p[df_p['선수명'] == a_p]
                 a_fip = a_p_stat['FIP'].iloc[0] if not a_p_stat.empty else 4.50
                 
-                # 2. 타선 평균 OPS 구하기 (선택한 9명 기준)
                 if len(h_lineup) > 0: h_ops = df_h[df_h['선수명'].isin(h_lineup)]['가상OPS'].mean()
                 else: h_ops = df_h[df_h['소속팀'] == h_team]['가상OPS'].mean()
                 
                 if len(a_lineup) > 0: a_ops = df_h[df_h['선수명'].isin(a_lineup)]['가상OPS'].mean()
                 else: a_ops = df_h[df_h['소속팀'] == a_team]['가상OPS'].mean()
                 
-                # 기본값 보정
                 h_ops = 0.720 if pd.isna(h_ops) else h_ops
                 a_ops = 0.720 if pd.isna(a_ops) else a_ops
 
-                # 3. KBO 파크팩터 적용
                 pf = KBO_PARK_FACTORS.get(h_team, 1.00)
                 
-                # 4. 시뮬레이션 실행
                 h_win, a_win, top3_scores, h_eff, a_eff, _ = run_mlb_simulation(
                     h_fip, a_fip, 5.0, 5.0, h_ops, a_ops, 4.0, 4.0, 0.5, 0.5, pf
                 )
@@ -605,11 +613,11 @@ elif league_choice == "🇰🇷 한국프로야구 (KBO)":
                     st.markdown(f"> {comment}")
 
         with tab2:
-            st.write("2026 시즌 투수 기록실 (FIP 수치 자동 계산 포함)")
+            st.write("2026 시즌 투수 기록실 (FIP 수치 보정 완료)")
             st.dataframe(df_p, use_container_width=True)
             
         with tab3:
-            st.write("2026 시즌 타자 기록실 (가상 OPS 수치 자동 계산 포함)")
+            st.write("2026 시즌 타자 기록실")
             st.dataframe(df_h, use_container_width=True)
 
     except Exception as e:
