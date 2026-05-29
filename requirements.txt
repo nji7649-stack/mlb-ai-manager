@@ -2,35 +2,5 @@ streamlit
 pandas
 openpyxl
 pybaseball
-*(이렇게 하면 서버가 NBA 데이터를 가져올 준비를 마칩니다!)*
-
----
-
-### 🏀 2단계: NBA 데이터 쫙쫙 뽑아오는 '기본 엔진' 코드
-
-이제 `app.py`를 열고 `elif league_choice == "한국프로야구 (KBO)":` 구역 바로 아래에 **`elif league_choice == "NBA":`** 구역을 새로 만들 준비를 하겠습니다.
-
-우선, NBA 데이터를 가장 깔끔하게 가져오는 **'경기 일정 로딩 함수'** 코드입니다. 이 코드를 복사해서 `app.py` 파일의 아무 빈 곳(함수들 모여있는 곳)에 붙여넣어 주세요.
-
-```python
-from nba_api.stats.endpoints import leaguegamefinder
-
-@st.cache_data(ttl=3600)
-def load_nba_schedule(target_date):
-    # 날짜를 NBA API 형식(MM/DD/YYYY)으로 변환
-    date_str = target_date.strftime('%m/%d/%Y')
-    
-    # 해당 날짜의 경기만 검색
-    gamefinder = leaguegamefinder.LeagueGameFinder(date_from_nullable=date_str, date_to_nullable=date_str)
-    games = gamefinder.get_data_frames()[0]
-    
-    if games.empty:
-        return pd.DataFrame()
-        
-    # 팀별로 묶어서 정리 (NBA는 한 경기에 두 팀이 나오므로 중복 제거가 필요합니다)
-    games = games.drop_duplicates(subset=['GAME_ID'])
-    
-    # 보기 좋게 데이터 정리
-    games = games[['GAME_DATE', 'MATCHUP', 'WL', 'PTS']]
-    games.columns = ['경기날짜', '대진', '결과', '득점']
-    return games
+requests
+nba-api
