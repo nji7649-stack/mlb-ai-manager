@@ -270,8 +270,8 @@ st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
 
 # 💡 'us', 'KR' 국기 텍스트 깔끔하게 제거
 league_choice = st.sidebar.radio(
-    "분석할 리그를 선택하세요:", 
-    ["메이저리그 (MLB)", "한국프로야구 (KBO)"]
+"분석할 리그를 선택하세요:", 
+    ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"]
 )
 
 st.sidebar.markdown("---")
@@ -645,3 +645,47 @@ elif league_choice == "한국프로야구 (KBO)":
 
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
+
+# --- NBA 추가 기능 ---
+from nba_api.stats.endpoints import leaguegamefinder
+
+@st.cache_data(ttl=3600)
+def load_nba_schedule(target_date):
+    date_str = target_date.strftime('%m/%d/%Y')
+    gamefinder = leaguegamefinder.LeagueGameFinder(date_from_nullable=date_str, date_to_nullable=date_str)
+    try:
+        games = gamefinder.get_data_frames()[0]
+        if games.empty: return pd.DataFrame()
+        games = games.drop_duplicates(subset=['GAME_ID'])
+        games = games[['GAME_DATE', 'MATCHUP', 'WL', 'PTS']]
+        games.columns = ['경기날짜', '대진', '결과', '득점']
+        return games
+    except:
+        return pd.DataFrame()
+
+
+
+# --- [NBA 데이터 로드 함수] ---
+@st.cache_data(ttl=3600)
+def load_nba_schedule(target_date):
+    date_str = target_date.strftime('%m/%d/%Y')
+    gamefinder = leaguegamefinder.LeagueGameFinder(date_from_nullable=date_str, date_to_nullable=date_str)
+    try:
+        games = gamefinder.get_data_frames()[0]
+        if games.empty: return pd.DataFrame()
+        games = games.drop_duplicates(subset=['GAME_ID'])
+        games = games[['GAME_DATE', 'MATCHUP', 'WL', 'PTS']]
+        games.columns = ['경기날짜', '대진', '결과', '득점']
+        return games
+    except:
+        return pd.DataFrame()
+
+# --- [NBA 모드 실행] ---
+elif league_choice == "NBA (농구)":
+    st.header("🏀 NBA AI 분석실")
+    nba_date = st.date_input("🗓️ 분석 날짜 선택", datetime.now().date(), key="nba_date_picker")
+    df_nba = load_nba_schedule(nba_date)
+    if not df_nba.empty:
+        st.dataframe(df_nba, use_container_width=True)
+    else:
+        st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
