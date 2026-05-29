@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta
 import random
 from collections import Counter
 import time
+from nba_api.stats.endpoints import leaguegamefinder
 
 # 앱 전체 기본 설정
 st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
@@ -271,7 +272,7 @@ st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
 # 💡 'us', 'KR' 국기 텍스트 깔끔하게 제거
 league_choice = st.sidebar.radio(
     "분석할 리그를 선택하세요:", 
-    ["메이저리그 (MLB)", "한국프로야구 (KBO)"]
+    ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"]
 )
 
 st.sidebar.markdown("---")
@@ -645,3 +646,19 @@ elif league_choice == "한국프로야구 (KBO)":
 
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
+# ==========================================
+# 🏀 NBA 모드 렌더링
+# ==========================================
+elif league_choice == "NBA (농구)":
+    st.header("🏀 NBA AI 분석실 (데이터 엔진 탑재)")
+    
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    selected_nba_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", kst_now.date(), key="nba_date_picker")
+    
+    with st.spinner("NBA 공식 서버에서 데이터를 가져오는 중..."):
+        df_nba = load_nba_schedule(selected_nba_date)
+        
+    if not df_nba.empty:
+        st.dataframe(df_nba, use_container_width=True)
+    else:
+        st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
