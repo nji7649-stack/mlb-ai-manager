@@ -46,6 +46,28 @@ def load_nba_schedule(target_date):
         st.error(f"데이터 로드 오류: {e}")
         return pd.DataFrame()
 
+# --- NBA 선수 스탯 및 팀 분석 함수 ---
+@st.cache_data(ttl=3600)
+def load_nba_player_stats(team_name):
+    # 팀별 주요 선수 스탯을 가져오는 로직 (실제 서비스에서는 API 연동)
+    # 여기서는 예시로 팀의 평균 공격/수비 효율 데이터를 반환합니다.
+    stats = {
+        'BOS': {'off': 118.5, 'def': 105.2},
+        'OKC': {'off': 115.3, 'def': 108.8},
+        'SAS': {'off': 110.1, 'def': 112.5},
+        'LAL': {'off': 114.2, 'def': 110.1}
+    }
+    return stats.get(team_name, {'off': 110.0, 'def': 110.0})
+
+def run_nba_simulation(home_stats, away_stats, home_court_adv=2.5):
+    # 공격효율 - 상대 수비효율 = 예상 점수 차이
+    h_expected = home_stats['off'] - away_stats['def'] + home_court_adv
+    a_expected = away_stats['off'] - home_stats['def']
+    
+    # 정규분포를 이용한 승률 계산
+    h_win_prob = 50 + (h_expected - a_expected) * 2.5
+    return max(10, min(90, h_win_prob))
+
 # ==========================================
 # 🇺🇸 MLB 전용 설정 및 함수
 # ==========================================
