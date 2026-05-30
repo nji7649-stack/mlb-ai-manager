@@ -6,9 +6,7 @@ import random
 from collections import Counter
 import time
 
-# ==========================================
-# 🏠 앱 전체 기본 설정
-# ==========================================
+# 앱 전체 기본 설정
 st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
 
 st.markdown("""
@@ -19,57 +17,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 🏀 [새로운 기능] NBA 전용 함수
-# ==========================================
-@st.cache_data(ttl=600)
-
-def load_nba_schedule(target_date):
-    date_str = target_date.strftime('%Y-%m-%d')
-    url = f"https://api.balldontlie.io/v1/games?dates[]={date_str}" 
-    headers = {"Authorization": "470ab1a9-a550-4eba-9e06-dd55721c64a9"}
-    try:
-        res = requests.get(url, headers=headers, timeout=10).json()
-        games = res.get('data', [])
-        data = []
-        for g in games:
-            # 점수 필드를 더 안전하게 가져오도록 변경합니다.
-            # v1 API에서 home_score/visitor_score가 0으로 나올 경우 g를 출력해보면 정확한 필드명을 알 수 있습니다.
-            data.append({
-                '경기시간': g.get('status', '종료'),
-                '원정 팀': g.get('visitor_team', {}).get('abbreviation', 'N/A'),
-                '원정 점수': g.get('visitor_team_score', '집계중') if g.get('visitor_team_score') is not None else g.get('visitor_score', '집계중'),
-                '홈 팀': g.get('home_team', {}).get('abbreviation', 'N/A'),
-                '홈 점수': g.get('home_team_score', '집계중') if g.get('home_team_score') is not None else g.get('home_score', '집계중')
-            })
-        return pd.DataFrame(data)
-    except Exception as e:
-        st.error(f"데이터 로드 오류: {e}")
-        return pd.DataFrame()
-
-# --- NBA 선수 스탯 및 팀 분석 함수 ---
-@st.cache_data(ttl=3600)
-def load_nba_player_stats(team_name):
-    # 팀별 주요 선수 스탯을 가져오는 로직 (실제 서비스에서는 API 연동)
-    # 여기서는 예시로 팀의 평균 공격/수비 효율 데이터를 반환합니다.
-    stats = {
-        'BOS': {'off': 118.5, 'def': 105.2},
-        'OKC': {'off': 115.3, 'def': 108.8},
-        'SAS': {'off': 110.1, 'def': 112.5},
-        'LAL': {'off': 114.2, 'def': 110.1}
-    }
-    return stats.get(team_name, {'off': 110.0, 'def': 110.0})
-
-def run_nba_simulation(home_stats, away_stats, home_court_adv=2.5):
-    # 공격효율 - 상대 수비효율 = 예상 점수 차이
-    h_expected = home_stats['off'] - away_stats['def'] + home_court_adv
-    a_expected = away_stats['off'] - home_stats['def']
-    
-    # 정규분포를 이용한 승률 계산
-    h_win_prob = 50 + (h_expected - a_expected) * 2.5
-    return max(10, min(90, h_win_prob))
-
-# ==========================================
-# 🇺🇸 MLB 전용 설정 및 함수
+# MLB 전용 설정 및 함수
 # ==========================================
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
@@ -128,63 +76,6 @@ def load_mlb_all_data():
     team_bullpen_fip = df_bullpen.groupby('팀')['FIP'].mean().to_dict()
     return df_h, df_p, team_bullpen_fip
 
-# ==========================================
-# ⚾ 1. 메이저리그 (MLB) 모드 (배당 복구 완료)
-# ==========================================
-if league_choice == "메이저리그 (MLB)":
-    st.header("🇺🇸 MLB AI 정밀 분석실")
-    mlb_date = st.date_input("🗓️ MLB 경기 날짜 선택", datetime.now().date(), key="mlb_date_picker")
-    
-    # 감독님의 기존 MLB 일정 불러오기 함수 (예: load_mlb_schedule)
-    # 여기서는 예시 구조이며, 기존에 쓰시던 MLB 시뮬레이션 및 배당 출력 코드가 이 자리에 들어가야 합니다.
-    st.info("MLB 경기 일정 및 AI 예측 배당 시스템이 정상 가동 중입니다.")
-    
-    # 💡 예시 배당 출력 구조 (기존 시뮬레이션 함수 결과 연결 필요)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(label="🏠 홈 팀 승리 배당 (AI 예상)", value="1.65")
-    with col2:
-        st.metric(label="✈️ 원정 팀 승리 배당 (AI 예상)", value="2.25")
-
-# ==========================================
-# 🇰🇷 2. 한국프로야구 (KBO) 모드
-# ==========================================
-elif league_choice == "한국프로야구 (KBO)":
-    st.header("🇰🇷 KBO AI 감독 모드")
-    PITCHER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
-    BATTER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=779417540&single=true&output=csv"
-    try:
-        df_p = load_kbo_data(PITCHER_URL, 'pitcher')
-        df_h = load_kbo_data(BATTER_URL, 'batter')
-        selected_kbo_date = st.date_input("🗓️ 날짜 선택:", datetime.now().date())
-        df_kbo_schedule = load_kbo_schedule(selected_kbo_date)
-        tab1, tab2, tab3 = st.tabs(["매치업 분석", "투수 기록", "타자 기록"])
-        with tab1:
-            if not df_kbo_schedule.empty: 
-                st.dataframe(df_kbo_schedule, use_container_width=True)
-            else: 
-                st.info("경기가 없습니다.")
-        with tab2: 
-            st.dataframe(df_p, use_container_width=True)
-        with tab3: 
-            st.dataframe(df_h, use_container_width=True)
-    except Exception as e: 
-        st.error(f"데이터 오류: {e}")
-
-# ==========================================
-# 🏀 3. NBA 모드 
-# ==========================================
-elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 정밀 분석실")
-    nba_date = st.date_input("🗓️ 경기 날짜 선택", datetime.now().date())
-    df_nba = load_nba_schedule(nba_date)
-    
-    if not df_nba.empty: 
-        st.dataframe(df_nba, use_container_width=True)
-    else:
-        st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
-
-
 @st.cache_data(ttl=3600)
 def load_mlb_team_momentum():
     url = "https://statsapi.mlb.com/api/v1/standings?leagueId=103,104"
@@ -228,9 +119,11 @@ def calculate_mlb_ai_odds(h_team, a_team, h_p, a_p, df_h, df_p, team_bp_fip):
 
 @st.cache_data(ttl=300)
 def load_mlb_schedule(target_date_kst):
+    # 💡 시차 보정: 한국 달력 기준 '오늘' 아침 경기는 미국 시간으로 '어제' 날짜임
     us_date = target_date_kst - timedelta(days=1)
     date_str = us_date.strftime("%Y-%m-%d")
     schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
+    
     res = requests.get(schedule_url).json()
     games = []
     df_h, df_p, team_bp_fip = load_mlb_all_data()
@@ -295,7 +188,8 @@ def load_mlb_live_lineup(game_pk):
         home_lineup = [h_lookup.get(pid, {'name': 'Unknown', 'pos': '야수', 'batSide': 'R'}) for pid in home_order]
         away_lineup = [a_lookup.get(pid, {'name': 'Unknown', 'pos': '야수', 'batSide': 'R'}) for pid in away_order]
         return home_lineup, away_lineup, h_starter_hand, a_starter_hand
-    except: return None, None, 'R', 'R'
+    except:
+        return None, None, 'R', 'R'
 
 def calculate_platoon_ops(lineup, df_hitters, opp_pitcher_hand):
     total_ops = 0
@@ -319,24 +213,33 @@ def run_mlb_simulation(h_fip, a_fip, h_avg_ip, a_avg_ip, h_ops, a_ops, h_bp_fip,
     a_starter_weight = a_avg_ip / 9.0
     h_eff_fip = (h_fip * h_starter_weight) + (h_bp_fip * (1 - h_starter_weight))
     a_eff_fip = (a_fip * a_starter_weight) + (a_bp_fip * (1 - a_starter_weight))
+    
     h_momentum = 1.0 + (h_l10_rate - 0.5) * 0.1
     a_momentum = 1.0 + (a_l10_rate - 0.5) * 0.1
+    
     h_attack = (h_ops / 0.720) * h_momentum if h_ops > 0 else 1.0 * h_momentum
     a_attack = (a_ops / 0.720) * a_momentum if a_ops > 0 else 1.0 * a_momentum
+    
     h_expected_runs = ((a_eff_fip * h_attack) + 0.2) * park_factor
     a_expected_runs = (h_eff_fip * a_attack) * park_factor
+    
     h_wins, a_wins = 0, 0
     scores = []
+    
     h_tie_win_prob = h_expected_runs / (h_expected_runs + a_expected_runs) if (h_expected_runs + a_expected_runs) > 0 else 0.5
+
     for _ in range(num_sims):
         h_score = max(0, int(random.gauss(h_expected_runs, 2.3)))
         a_score = max(0, int(random.gauss(a_expected_runs, 2.3)))
+        
         if h_score == a_score:
             if random.random() < h_tie_win_prob: h_score += 1
             else: a_score += 1
+            
         if h_score > a_score: h_wins += 1
         elif a_score > h_score: a_wins += 1
         scores.append(f"{h_score} : {a_score}")
+        
     top3_scores = Counter(scores).most_common(3)
     formatted_top3 = [f"{score} ({(count / num_sims) * 100:.1f}%)" for score, count in top3_scores]
     return (h_wins / num_sims) * 100, (a_wins / num_sims) * 100, formatted_top3, h_eff_fip, a_eff_fip, park_factor
@@ -355,24 +258,171 @@ def generate_ai_commentary(h_team, a_team, h_eff_fip, a_eff_fip, h_ops, a_ops, h
     else: comments.append("🏏 **[타선] 화력 팽팽:** 양 팀 화력 기대치가 대등합니다. 클러치 상황의 집중력이 승부를 가를 것입니다.")
     if h_win_prob >= 62.0: comments.append(f"💡 **[종합 요약]** 투타 전반에서 **{h_team}**의 우세가 뚜렷합니다. 이변이 없는 한 승리 가능성이 높습니다.")
     elif h_win_prob <= 38.0: comments.append(f"💡 **[종합 요약]** 원정팀 **{a_team}**의 전력이 압도합니다. 원정팀 역배당(또는 정배) 가치가 높습니다.")
-    else: comments.append("💡 **[종합 요약]** 전력이 팽팽한 **박빙 매치(Toss-up)**입니다. 선발 이닝 소화력과 벤치 개입이 승패를 가릅니다.")
+    else: comments.append(f"💡 **[종합 요약]** 전력이 팽팽한 **박빙 매치(Toss-up)**입니다. 선발 이닝 소화력과 벤치 개입이 승패를 가릅니다.")
     return comments
 
+
 # ==========================================
-# 🇰🇷 KBO 전용 함수
+# 📺 메인 UI - 사이드바(좌측 메뉴) 구성
 # ==========================================
-@st.cache_data(ttl=60)
-def load_kbo_schedule(target_date):
-    date_str = target_date.strftime('%Y-%m-%d')
-    url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&categoryId=kbo&fromDate={date_str}&toDate={date_str}"
-    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://sports.naver.com/"}
-    games = []
+st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
+st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
+
+# 국기 제거 및 텍스트 깔끔하게 변경
+league_choice = st.sidebar.radio(
+    "분석할 리그를 선택하세요:", 
+    ["메이저리그 (MLB)", "한국프로야구 (KBO)"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info("해외 야구는 크롬의 '한국어로 번역' 기능을 켜시면 더욱 쾌적하게 이용할 수 있습니다.")
+
+
+# ==========================================
+# 🇺🇸 MLB 모드 렌더링
+# ==========================================
+if league_choice == "메이저리그 (MLB)":
+    st.header("🇺🇸 MLB AI 감독 모드 (배당 및 분석 탑재)")
+    st.write("🔄 메이저리그 30개 구단 데이터베이스 동기화 중...")
+
     try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            games_data = res.json().get('result', {}).get('games', [])
+        df_hitter, df_pitcher, team_bp_fip_dict = load_mlb_all_data()
+        momentum_dict = load_mlb_team_momentum()
+        
+        kst_now = datetime.utcnow() + timedelta(hours=9)
+        selected_date = st.date_input("🗓️ 분석 날짜를 선택하세요 (한국시간 기준):", kst_now.date())
+        df_schedule = load_mlb_schedule(selected_date)
+        
+        tab1, tab2, tab3 = st.tabs(["📅 매치업 및 실시간 라인업", "投 전체 투수 스탯", "🏃‍♂️ 전체 타자 스탯"])
+        
+        with tab1:
+            if not df_schedule.empty:
+                st.markdown("<p style='font-size:13px; color:#cccccc; margin-bottom:5px;'>※ 팀 이름 옆 숫자는 <b>'AI 자체 예상 배당(Implied Odds)'</b>입니다.</p>", unsafe_allow_html=True)
+                html_table = "<table style='width:100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 15px;'>"
+                html_table += "<tr style='background-color: #262730; color: white; border-bottom: 2px solid #555;'><th style='padding: 12px;'>경기시간(KST)</th><th style='padding: 12px;'>상태</th><th style='padding: 12px; text-align: left;'>홈 팀 <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>홈 선발투수</th><th style='padding: 12px; text-align: left;'>어웨이 팀 (원정) <span style='color:#ffcc00; font-size:12px;'>[AI 배당]</span></th><th style='padding: 12px;'>어웨이 선발투수</th></tr>"
+                for _, row in df_schedule.iterrows():
+                    html_table += f"<tr style='border-bottom: 1px solid #333;'><td style='padding: 10px;'>{row['경기시간(KST)']}</td><td style='padding: 10px;'>{row['상태']}</td><td style='padding: 10px; text-align: left;'>{row['홈표시']}</td><td style='padding: 10px;'>{row['홈 선발투수']}</td><td style='padding: 10px; text-align: left;'>{row['원정표시']}</td><td style='padding: 10px;'>{row['어웨이 선발투수']}</td></tr>"
+                html_table += "</table>"
+                st.markdown(html_table, unsafe_allow_html=True)
+                
+                game_options = df_schedule['홈 팀'] + " (홈) vs " + df_schedule['어웨이 팀 (원정)'] + " (원정)"
+                selected_game = st.selectbox("🔮 정밀 시뮬레이션 경기 선택:", game_options, key="mlb_game_selector")
+                
+                row = df_schedule[game_options == selected_game].iloc[0]
+                h_team, a_team, h_id, a_id = row['홈 팀'], row['어웨이 팀 (원정)'], row['홈 ID'], row['원정 ID']
+                h_p, a_p, game_pk = row['홈 선발투수'], row['어웨이 선발투수'], row['gamePk']
+                
+                c1, c2, c3 = st.columns([2, 1, 2])
+                with c1: st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{h_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **홈: {h_team}**", unsafe_allow_html=True)
+                with c2: st.markdown("<h4 style='text-align: center;'>VS</h4>", unsafe_allow_html=True)
+                with c3: st.markdown(f"#### <img src='https://www.mlbstatic.com/team-logos/{a_id}.svg' width='24' style='vertical-align: middle; margin-right: 8px;'> **원정: {a_team}**", unsafe_allow_html=True)
+                
+                st.markdown("---")
+                h_lineup, a_lineup, h_p_hand, a_p_hand = load_mlb_live_lineup(game_pk)
+                
+                if h_lineup and a_lineup:
+                    st.success(f"✨ 라인업 확정! (투수 손에 맞춘 '플래툰 OPS' 자동 적용)")
+                    col_l1, col_l2 = st.columns(2)
+                    with col_l1:
+                        st.markdown(f"**🏠 {h_team} 선발 타순 (vs {'좌완' if a_p_hand=='L' else '우완'} 투수)**")
+                        for i, p in enumerate(h_lineup): st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']}/{p['batSide']}타)</span>", unsafe_allow_html=True)
+                    with col_l2:
+                        st.markdown(f"**✈️ {a_team} 선발 타순 (vs {'좌완' if h_p_hand=='L' else '우완'} 투수)**")
+                        for i, p in enumerate(a_lineup): st.write(f"{i+1}. {p['name']} <span style='color:#ffcc00;'>({p['pos']}/{p['batSide']}타)</span>", unsafe_allow_html=True)
+                    h_ops = calculate_platoon_ops(h_lineup, df_hitter, a_p_hand)
+                    a_ops = calculate_platoon_ops(a_lineup, df_hitter, h_p_hand)
+                else:
+                    st.warning("🚨 라인업 준비중 - 팀 평균 스탯으로 임시 연산합니다.")
+                    h_ops = df_hitter[(df_hitter['팀'] == h_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
+                    a_ops = df_hitter[(df_hitter['팀'] == a_team) & (df_hitter['타수'] > 100)]['OPS'].mean() or 0.720
+                    
+                if st.button("🚀 MLB 최종 시뮬레이션 돌리기"):
+                    my_bar = st.progress(0, text="분석 코멘터리를 작성 중입니다...")
+                    for p in range(100):
+                        time.sleep(0.01)
+                        my_bar.progress(p + 1)
+                    my_bar.empty()
+                    
+                    h_bp_fip = team_bp_fip_dict.get(h_team, 4.00)
+                    a_bp_fip = team_bp_fip_dict.get(a_team, 4.00)
+                    h_l10 = momentum_dict.get(h_team, {'rate': 0.5, 'str': '5 W - 5 L'})
+                    a_l10 = momentum_dict.get(a_team, {'rate': 0.5, 'str': '5 W - 5 L'})
+                    pf = MLB_PARK_FACTORS.get(h_team, 1.00)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.error(f"🏠 **{h_team} 전력**")
+                        h_p_data = df_pitcher[df_pitcher['이름'] == h_p]
+                        h_s_fip = h_p_data['FIP'].values[0] if not h_p_data.empty else 4.50
+                        h_s_ip = h_p_data['평균이닝'].values[0] if not h_p_data.empty else 5.0
+                        st.write(f"⚾ 선발 FIP: **{h_s_fip:.2f}** | 🔋 소화 이닝: **{h_s_ip:.1f}회**")
+                        st.write(f"🛡️ 불펜 FIP: **{h_bp_fip:.2f}** | 🔥 보정 OPS: **{h_ops:.3f}**")
+                    with col2:
+                        st.info(f"✈️ **{a_team} 전력**")
+                        a_p_data = df_pitcher[df_pitcher['이름'] == a_p]
+                        a_s_fip = a_p_data['FIP'].values[0] if not a_p_data.empty else 4.50
+                        a_s_ip = a_p_data['평균이닝'].values[0] if not a_p_data.empty else 5.0
+                        st.write(f"⚾ 선발 FIP: **{a_s_fip:.2f}** | 🔋 소화 이닝: **{a_s_ip:.1f}회**")
+                        st.write(f"🛡️ 불펜 FIP: **{a_bp_fip:.2f}** | 🔥 보정 OPS: **{a_ops:.3f}**")
+                    
+                    h_win, a_win, top3_scores, h_eff, a_eff, _ = run_mlb_simulation(h_s_fip, a_s_fip, h_s_ip, a_s_ip, h_ops, a_ops, h_bp_fip, a_bp_fip, h_l10['rate'], a_l10['rate'], pf)
+                    
+                    st.markdown("---")
+                    st.subheader("🏆 세이버메트릭스 최종 리포트")
+                    col_res1, col_res2 = st.columns(2)
+                    with col_res1:
+                        st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
+                        st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
+                    with col_res2:
+                        st.warning(f"🎯 **예상 스코어 TOP 3**")
+                        st.write(f"🥇 1순위: **{top3_scores[0]}** | 🥈 2순위: **{top3_scores[1]}** | 🥉 3순위: **{top3_scores[2]}**")
+                    
+                    st.markdown("### 📝 AI 전력 분석 브리핑")
+                    comments = generate_ai_commentary(h_team, a_team, h_eff, a_eff, h_ops, a_ops, h_l10['rate'], a_l10['rate'], h_win)
+                    for comment in comments:
+                        st.markdown(f"> {comment}")
+            else:
+                st.info("예정된 경기가 없습니다.")
+                
+        with tab2:
+            st.write("2026 시즌 전체 투수 세부 스탯")
+            st.dataframe(df_pitcher[['이름', '팀', 'ERA', 'FIP', '평균이닝', '승', '패', '세이브', '출장', '선발', '이닝', '탈삼진', '볼넷', 'WHIP']], use_container_width=True)
+            
+        with tab3:
+            st.write("2026 시즌 전체 타자 세부 스탯")
+            st.dataframe(df_hitter[['이름', '팀', '타수', '안타', '홈런', '타점', '득점', '볼넷', '타율', 'OPS']], use_container_width=True)
+            
+    except Exception as e:
+        st.error(f"오류 발생: {e}")
+
+# ==========================================
+# 🇰🇷 KBO 모드 렌더링
+# ==========================================
+elif league_choice == "한국프로야구 (KBO)":
+    st.header("🇰🇷 KBO AI 감독 모드 (수동 라인업 시뮬레이터 탑재)")
+    st.caption("✅ 개별 라인업 카드 및 스탯 이름표 연동 완료 (동점 처리 방식 고도화)")
+
+    # KBO 구장 팩터
+    KBO_PARK_FACTORS = {
+        '삼성': 1.06, 'SSG': 1.05, '롯데': 1.02, 'NC': 1.01,
+        'KT': 1.00, '한화': 1.00, 'KIA': 0.99, '키움': 0.97,
+        'LG': 0.95, '두산': 0.95
+    }
+
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    selected_kbo_date = st.date_input("🗓️ 분석 날짜를 선택하세요:", kst_now.date(), key="kbo_date_picker")
+
+    @st.cache_data(ttl=60)
+    def load_kbo_schedule(target_date):
+        date_str = target_date.strftime('%Y-%m-%d')
+        url = f"https://api-gw.sports.naver.com/schedule/games?upperCategoryId=kbaseball&date={date_str}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        games = []
+        try:
+            res = requests.get(url, headers=headers, timeout=5).json()
+            games_data = res.get('result', {}).get('games', [])
             for game in games_data:
-                if str(game.get('categoryId', '')).lower() != 'kbo': continue
+                if game.get('categoryId', '') != 'kbo': continue
                 h_score = game.get('homeTeamScore', 0)
                 a_score = game.get('awayTeamScore', 0)
                 status_code = game.get('statusCode', '')
@@ -380,122 +430,206 @@ def load_kbo_schedule(target_date):
                 elif status_code == 'STARTED': status_str = f"🔥 진행중 ({h_score}:{a_score})"
                 elif status_code == 'CANCELED': status_str = "☔ 취소"
                 else: status_str = "⏳ 예정"
-                game_time = game.get('gameStartTime') or game.get('gameTime') or 'TBD'
-                h_starter = game.get('homeStarterName') or '미발표'
-                a_starter = game.get('awayStarterName') or '미발표'
-                games.append({'경기시간': game_time[:5], '상태': status_str, '홈 팀': game.get('homeTeamName'), '홈 선발투수': h_starter, '원정 팀': game.get('awayTeamName'), '원정 선발투수': a_starter})
-    except: pass
-    return pd.DataFrame(games)
+                
+                game_time = game.get('gameStartTime') or 'TBD'
+                if game_time != 'TBD' and len(game_time) >= 5: game_time = game_time[:5]
+                
+                games.append({
+                    '경기시간': game_time, '상태': status_str,
+                    '홈 팀': game.get('homeTeamName', '홈팀'), '홈 선발투수': game.get('homeStarterName', '미발표'),
+                    '원정 팀': game.get('awayTeamName', '원정팀'), '원정 선발투수': game.get('awayStarterName', '미발표')
+                })
+        except: pass 
+        return pd.DataFrame(games)
 
-@st.cache_data(ttl=10)
-def load_kbo_data(url, data_type):
-    df = pd.read_csv(url, header=None, dtype=str)
-    df = df.dropna(subset=[1])
-    df = df[df[1] != '선수명']
-    def parse_innings(ip_val):
-        try:
-            s = str(ip_val).strip()
-            if '1/3' in s: return float(s.split()[0]) + 0.333 if ' ' in s else 0.333
-            if '2/3' in s: return float(s.split()[0]) + 0.667 if ' ' in s else 0.667
-            return float(s)
-        except: return 1.0
-    if data_type == 'pitcher':
-        cols = {0:'순위', 1:'선수명', 2:'소속팀', 3:'방어율', 4:'경기수', 5:'승리', 6:'패배', 7:'세이브', 8:'홀드', 9:'승률', 10:'소화이닝', 11:'피안타', 12:'피홈런', 13:'볼넷', 14:'데드볼', 15:'탈삼진', 16:'실점', 17:'자책점', 18:'이닝당출루허용'}
-        df = df.rename(columns=cols)
-        df['소화이닝_num'] = df['소화이닝'].apply(parse_innings)
-        df['피홈런'] = pd.to_numeric(df['피홈런'], errors='coerce').fillna(0)
-        df['볼넷'] = pd.to_numeric(df['볼넷'], errors='coerce').fillna(0)
-        df['탈삼진'] = pd.to_numeric(df['탈삼진'], errors='coerce').fillna(0)
-        df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.50)
-        df['FIP'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝_num']) + 3.10 if x['소화이닝_num'] > 0 else x['방어율'], axis=1)
-    else:
-        cols = {0:'순위', 1:'선수명', 2:'소속팀', 3:'타율', 4:'경기수', 5:'타석', 6:'타수', 7:'득점', 8:'안타', 9:'2루타', 10:'3루타', 11:'홈런', 12:'루타', 13:'타점', 14:'희생번트', 15:'희생플라이'}
-        df = df.rename(columns=cols)
-        df['타율'] = pd.to_numeric(df['타율'], errors='coerce').fillna(0.0)
-        df['타수'] = pd.to_numeric(df['타수'], errors='coerce').fillna(1)
-        df['루타'] = pd.to_numeric(df['루타'], errors='coerce').fillna(0)
-        df['가상OPS'] = df['타율'] + (df['루타'] / df['타수'])
-    return df
-
-# ==========================================
-# 📺 메인 UI 및 사이드바 구성
-# ==========================================
-st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
-league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
-st.sidebar.markdown("---")
-
-# 🇺🇸 MLB 모드
-if league_choice == "메이저리그 (MLB)":
-    st.header("🇺🇸 MLB AI 감독 모드")
-    try:
-        df_hitter, df_pitcher, team_bp_fip_dict = load_mlb_all_data()
-        momentum_dict = load_mlb_team_momentum()
-        selected_date = st.date_input("🗓️ 분석 날짜 선택(KST):", datetime.now().date())
-        df_schedule = load_mlb_schedule(selected_date)
-        tab1, tab2, tab3 = st.tabs(["매치업 분석", "투수 스탯", "타자 스탯"])
-        with tab1:
-            if not df_schedule.empty:
-                st.dataframe(df_schedule[['경기시간(KST)', '상태', '홈 팀', '홈 선발투수', '어웨이 팀 (원정)', '어웨이 선발투수']], use_container_width=True)
-                game_options = df_schedule['홈 팀'] + " vs " + df_schedule['어웨이 팀 (원정)']
-                selected_game = st.selectbox("🔮 정밀 시뮬레이션 선택:", game_options)
-                row = df_schedule[game_options == selected_game].iloc[0]
-                if st.button("🚀 시뮬레이션 실행"):
-                    h_team, a_team = row['홈 팀'], row['어웨이 팀 (원정)']
-                    h_p, a_p = row['홈 선발투수'], row['어웨이 선발투수']
-                    h_ops = df_hitter[df_hitter['팀'] == h_team]['OPS'].mean() or 0.720
-                    a_ops = df_hitter[df_hitter['팀'] == a_team]['OPS'].mean() or 0.720
-                    h_win, a_win, top3, h_eff, a_eff, _ = run_mlb_simulation(4.5, 4.5, 5.0, 5.0, h_ops, a_ops, 4.0, 4.0, 0.5, 0.5, 1.0)
-                    st.success(f"🏠 {h_team} 승률: {h_win:.1f}% | ✈️ {a_team} 승률: {a_win:.1f}%")
-                    for c in generate_ai_commentary(h_team, a_team, h_eff, a_eff, h_ops, a_ops, 0.5, 0.5, h_win): st.info(c)
-            else: st.info("예정된 경기가 없습니다.")
-        with tab2: st.dataframe(df_pitcher, use_container_width=True)
-        with tab3: st.dataframe(df_hitter, use_container_width=True)
-    except Exception as e: st.error(f"오류: {e}")
-
-# 🇰🇷 KBO 모드
-elif league_choice == "한국프로야구 (KBO)":
-    st.header("🇰🇷 KBO AI 감독 모드")
     PITCHER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=0&single=true&output=csv"
     BATTER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS0Xtkb0DAS2LR3cl5kw5hwk8LgazAmdkDHeQPryXCliim7P1Cnzde-0hqfdti3SQvIzGpbqG-hJdHJ/pub?gid=779417540&single=true&output=csv"
-    try:
-        df_p = load_kbo_data(PITCHER_URL, 'pitcher')
-        df_h = load_kbo_data(BATTER_URL, 'batter')
-        selected_kbo_date = st.date_input("🗓️ 날짜 선택:", datetime.now().date())
-        df_kbo_schedule = load_kbo_schedule(selected_kbo_date)
-        tab1, tab2, tab3 = st.tabs(["매치업 분석", "투수 기록", "타자 기록"])
-        with tab1:
-            if not df_kbo_schedule.empty: st.dataframe(df_kbo_schedule, use_container_width=True)
-            else: st.info("경기가 없습니다.")
-        with tab2: st.dataframe(df_p, use_container_width=True)
-        with tab3: st.dataframe(df_h, use_container_width=True)
-    except Exception as e: st.error(f"데이터 오류: {e}")
 
-# 🏀 NBA 모드 (새로 추가됨)
-elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 정밀 분석실")
-    nba_date = st.date_input("🗓️ 경기 날짜 선택", datetime.now().date())
-    df_nba = load_nba_schedule(nba_date)
-    
-    if not df_nba.empty:
-        st.dataframe(df_nba, use_container_width=True)
-        # 경기 선택 및 분석
-        game_options = df_nba['홈 팀'] + " vs " + df_nba['원정 팀']
-        selected_game = st.selectbox("🔮 분석할 경기 선택:", game_options)
+    @st.cache_data(ttl=10)
+    def load_kbo_data(url, data_type):
+        df = pd.read_csv(url, header=None, dtype=str)
+        df = df.dropna(subset=[1])
+        df = df[df[1] != '선수명']
         
-        if st.button("🚀 NBA 라인업 기반 시뮬레이션"):
-            home_team = selected_game.split(" vs ")[0]
-            away_team = selected_game.split(" vs ")[1]
+        def parse_innings(ip_val):
+            try:
+                s = str(ip_val).strip()
+                if '1/3' in s: return float(s.split()[0]) + 0.333 if ' ' in s else 0.333
+                if '2/3' in s: return float(s.split()[0]) + 0.667 if ' ' in s else 0.667
+                return float(s)
+            except:
+                return 1.0
+
+        if data_type == 'pitcher':
+            cols = {
+                0: '순위', 1: '선수명', 2: '소속팀', 3: '방어율', 4: '경기수', 5: '승리', 6: '패배', 
+                7: '세이브', 8: '홀드', 9: '승률', 10: '소화이닝', 11: '피안타', 12: '피홈런', 13: '볼넷', 
+                14: '데드볼', 15: '탈삼진', 16: '실점', 17: '자책점', 18: '이닝당출루허용'
+            }
+            df = df.rename(columns=cols)
+            df['소화이닝_num'] = df['소화이닝'].apply(parse_innings)
+            df['피홈런'] = pd.to_numeric(df['피홈런'], errors='coerce').fillna(0)
+            df['볼넷'] = pd.to_numeric(df['볼넷'], errors='coerce').fillna(0)
+            df['탈삼진'] = pd.to_numeric(df['탈삼진'], errors='coerce').fillna(0)
+            df['방어율'] = pd.to_numeric(df['방어율'], errors='coerce').fillna(4.50)
             
-            h_stats = load_nba_player_stats(home_team)
-            a_stats = load_nba_player_stats(away_team)
-            win_prob = run_nba_simulation(h_stats, a_stats)
+            df['FIP_계산'] = df.apply(lambda x: ((13*x['피홈런'] + 3*x['볼넷'] - 2*x['탈삼진']) / x['소화이닝_num']) + 3.10 if x['소화이닝_num'] > 0 else x['방어율'], axis=1)
+            df['FIP'] = df.apply(lambda x: x['FIP_계산'] if 0 < x['FIP_계산'] < 15 else x['방어율'], axis=1)
+        else:
+            cols = {
+                0: '순위', 1: '선수명', 2: '소속팀', 3: '타율', 4: '경기수', 5: '타석', 6: '타수', 
+                7: '득점', 8: '안타', 9: '2루타', 10: '3루타', 11: '홈런', 12: '루타', 13: '타점', 
+                14: '희생번트', 15: '희생플라이'
+            }
+            df = df.rename(columns=cols)
+            df['타율'] = pd.to_numeric(df['타율'], errors='coerce').fillna(0.0)
+            df['타수'] = pd.to_numeric(df['타수'], errors='coerce').fillna(1)
+            df['루타'] = pd.to_numeric(df['루타'], errors='coerce').fillna(0)
+            df['장타율'] = df.apply(lambda x: x['루타'] / x['타수'] if x['타수'] > 0 else 0, axis=1)
+            df['가상OPS'] = df['타율'] + df['장타율']
+        return df
+
+    try:
+        with st.spinner("KBO 일정표 및 구글 시트 데이터 로딩 중..."):
+            df_p = load_kbo_data(PITCHER_URL, 'pitcher')
+            df_h = load_kbo_data(BATTER_URL, 'batter')
             
-            st.success(f"🏠 {home_team} 예상 승리 확률: {win_prob:.1f}%")
-            st.info(f"✈️ {away_team} 예상 승리 확률: {100-win_prob:.1f}%")
+            p_format_dict = {}
+            for _, r in df_p.iterrows():
+                name = str(r['선수명'])
+                w = r.get('승리', '0')
+                l = r.get('패배', '0')
+                try: era = float(r.get('방어율', 4.50))
+                except: era = 4.50
+                try: ip = max(float(r.get('소화이닝_num', 1)), 0.1)
+                except: ip = 1.0
+                try: k = float(r.get('탈삼진', 0))
+                except: k = 0.0
+                try: bb = float(r.get('볼넷', 0))
+                except: bb = 0.0
+                k9 = (k / ip) * 9
+                bb9 = (bb / ip) * 9
+                p_format_dict[name] = f"{name} ({w}승 {l}패 | ERA {era:.2f} | 9이닝 평균삼진 {k9:.1f} | 9이닝 평균볼넷 {bb9:.1f})"
+
+            b_format_dict = {}
+            for _, r in df_h.iterrows():
+                name = str(r['선수명'])
+                try: avg = float(r.get('타율', 0.000))
+                except: avg = 0.000
+                try: ops = float(r.get('가상OPS', 0.000))
+                except: ops = 0.000
+                b_format_dict[name] = f"{name} (타율 {avg:.3f} | 가상OPS {ops:.3f})"
+
+        tab1, tab2, tab3 = st.tabs(["🔥 매치업 분석", "⚾ 투수 기록실", "🏏 타자 기록실"])
+
+        with tab1:
+            st.subheader(f"📅 {selected_kbo_date.strftime('%Y년 %m월 %d일')} KBO 일정 및 스코어")
+            df_kbo_schedule = load_kbo_schedule(selected_kbo_date)
             
-            # 분석 리포트
-            if win_prob > 60: st.markdown(f"> **AI 코멘트:** {home_team}의 공격 효율이 상대 수비를 압도합니다.")
-            elif win_prob < 40: st.markdown(f"> **AI 코멘트:** {away_team}의 원정 수비가 돋보입니다.")
-            else: st.markdown("> **AI 코멘트:** 전력이 팽팽합니다. 오늘 밤 치열한 접전이 예상됩니다.")
-    else:
-        st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
+            if not df_kbo_schedule.empty:
+                st.dataframe(df_kbo_schedule, use_container_width=True, hide_index=True)
+                st.caption("※ 네이버 API 제한으로 일부 과거 경기의 시간과 선발투수는 '미정'으로 표시될 수 있습니다.")
+            else:
+                st.info("선택하신 날짜에 진행된 KBO 경기가 없거나 정보를 불러올 수 없습니다.")
+                
+            st.markdown("<br><hr>", unsafe_allow_html=True)
+            
+            st.subheader("🔥 커스텀 라인업 승부 예측 시뮬레이션")
+            st.write("원하시는 팀의 선발투수와 **선발 타자 9명**을 직접 골라 팀의 진짜 파괴력을 측정하세요.")
+            
+            teams = df_p['소속팀'].dropna().unique().tolist()
+            col1, col2 = st.columns(2)
+            
+            h_lineup = []
+            a_lineup = []
+            
+            with col1:
+                st.error("🏠 **홈 팀 라인업 편성**")
+                h_team = st.selectbox("홈 팀", teams, key='ht')
+                h_p_list = df_p[df_p['소속팀'] == h_team]['선수명'].dropna().tolist()
+                h_p = st.selectbox("선발투수", h_p_list if h_p_list else ["선수없음"], format_func=lambda x: p_format_dict.get(x, x), key='hp')
+                
+                st.markdown("##### 🏏 홈팀 1~9번 타순")
+                h_b_list = df_h[df_h['소속팀'] == h_team]['선수명'].dropna().tolist()
+                for i in range(1, 10):
+                    default_idx = i - 1 if i - 1 < len(h_b_list) else 0
+                    batter = st.selectbox(f"{i}번 타자", h_b_list if h_b_list else ["선수없음"], index=default_idx, format_func=lambda x: b_format_dict.get(x, x), key=f'h_b_{i}')
+                    h_lineup.append(batter)
+                
+            with col2:
+                st.info("✈️ **원정 팀 라인업 편성**")
+                a_teams = [t for t in teams if t != h_team]
+                a_team = st.selectbox("원정 팀", a_teams if a_teams else teams, key='at')
+                a_p_list = df_p[df_p['소속팀'] == a_team]['선수명'].dropna().tolist()
+                a_p = st.selectbox("선발투수", a_p_list if a_p_list else ["선수없음"], format_func=lambda x: p_format_dict.get(x, x), key='ap')
+                
+                st.markdown("##### 🏏 원정팀 1~9번 타순")
+                a_b_list = df_h[df_h['소속팀'] == a_team]['선수명'].dropna().tolist()
+                for i in range(1, 10):
+                    default_idx = i - 1 if i - 1 < len(a_b_list) else 0
+                    batter = st.selectbox(f"{i}번 타자", a_b_list if a_b_list else ["선수없음"], index=default_idx, format_func=lambda x: b_format_dict.get(x, x), key=f'a_b_{i}')
+                    a_lineup.append(batter)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🚀 KBO 몬테카를로 시뮬레이션 실행 (10,000회)", use_container_width=True):
+                my_bar = st.progress(0, text="선택하신 타선의 기대 득점을 연산 중입니다...")
+                for p in range(100):
+                    time.sleep(0.01)
+                    my_bar.progress(p + 1)
+                my_bar.empty()
+
+                h_p_stat = df_p[df_p['선수명'] == h_p]
+                h_fip = h_p_stat['FIP'].iloc[0] if not h_p_stat.empty else 4.50
+                a_p_stat = df_p[df_p['선수명'] == a_p]
+                a_fip = a_p_stat['FIP'].iloc[0] if not a_p_stat.empty else 4.50
+                
+                if len(h_lineup) > 0: h_ops = df_h[df_h['선수명'].isin(h_lineup)]['가상OPS'].mean()
+                else: h_ops = df_h[df_h['소속팀'] == h_team]['가상OPS'].mean()
+                
+                if len(a_lineup) > 0: a_ops = df_h[df_h['선수명'].isin(a_lineup)]['가상OPS'].mean()
+                else: a_ops = df_h[df_h['소속팀'] == a_team]['가상OPS'].mean()
+                
+                h_ops = 0.720 if pd.isna(h_ops) else h_ops
+                a_ops = 0.720 if pd.isna(a_ops) else a_ops
+
+                pf = KBO_PARK_FACTORS.get(h_team, 1.00)
+                
+                h_win, a_win, top3_scores, h_eff, a_eff, _ = run_mlb_simulation(
+                    h_fip, a_fip, 5.0, 5.0, h_ops, a_ops, 4.0, 4.0, 0.5, 0.5, pf
+                )
+                
+                st.markdown("---")
+                col_i1, col_i2 = st.columns(2)
+                with col_i1:
+                    st.error(f"🏠 **{h_team} 선택 라인업 전력**")
+                    st.write(f"⚾ 선발 FIP (수비무관 방어율): **{h_fip:.2f}**")
+                    st.write(f"🔥 타선 평균 가상 OPS: **{h_ops:.3f}**")
+                with col_i2:
+                    st.info(f"✈️ **{a_team} 선택 라인업 전력**")
+                    st.write(f"⚾ 선발 FIP (수비무관 방어율): **{a_fip:.2f}**")
+                    st.write(f"🔥 타선 평균 가상 OPS: **{a_ops:.3f}**")
+                    
+                st.markdown("### 🏆 최종 세이버메트릭스 리포트")
+                col_res1, col_res2 = st.columns(2)
+                with col_res1:
+                    st.success(f"**{h_team} (홈) 승리 확률:** {h_win:.1f}%")
+                    st.info(f"**{a_team} (원정) 승리 확률:** {a_win:.1f}%")
+                with col_res2:
+                    st.warning(f"🎯 **가장 많이 나온 시뮬레이션 스코어 TOP 3**")
+                    st.write(f"🥇 1순위: **{top3_scores[0]}** | 🥈 2순위: **{top3_scores[1]}** | 🥉 3순위: **{top3_scores[2]}**")
+                    
+                st.markdown("### 📝 AI 전력 분석 브리핑")
+                comments = generate_ai_commentary(h_team, a_team, h_fip, a_fip, h_ops, a_ops, 0.5, 0.5, h_win)
+                for comment in comments:
+                    st.markdown(f"> {comment}")
+
+        with tab2:
+            st.write("2026 시즌 투수 기록실 (FIP 수치 보정 완료)")
+            st.dataframe(df_p, use_container_width=True)
+            
+        with tab3:
+            st.write("2026 시즌 타자 기록실 (가상 OPS 계산 탑재)")
+            st.dataframe(df_h, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"데이터 오류 발생: {e}")
