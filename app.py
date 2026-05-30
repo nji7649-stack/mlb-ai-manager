@@ -23,9 +23,9 @@ st.markdown("""
 # ==========================================
 @st.cache_data(ttl=600)
 @st.cache_data(ttl=600)
+@st.cache_data(ttl=600)
 def load_nba_schedule(target_date):
     date_str = target_date.strftime('%Y-%m-%d')
-    # balldontlie v1 API는 이제 키가 필수입니다
     url = f"https://api.balldontlie.io/v1/games?dates[]={date_str}" 
     headers = {"Authorization": "470ab1a9-a550-4eba-9e06-dd55721c64a9"}
     try:
@@ -33,16 +33,17 @@ def load_nba_schedule(target_date):
         games = res.get('data', [])
         data = []
         for g in games:
+            # 점수가 0으로 나올 때를 대비해 원본 데이터를 그대로 가져오도록 수정합니다.
             data.append({
                 '경기시간': g.get('status', '종료'),
-                '원정 팀': g.get('visitor_team', {}).get('abbreviation', ''),
-                '원정 점수': g.get('visitor_score', 0),
-                '홈 팀': g.get('home_team', {}).get('abbreviation', ''),
-                '홈 점수': g.get('home_score', 0)
+                '원정 팀': g.get('visitor_team', {}).get('abbreviation', 'N/A'),
+                '원정 점수': g.get('visitor_score', '집계중'),
+                '홈 팀': g.get('home_team', {}).get('abbreviation', 'N/A'),
+                '홈 점수': g.get('home_score', '집계중')
             })
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"데이터 로딩 오류: {e}")
+        st.error(f"데이터 로드 오류: {e}")
         return pd.DataFrame()
 
 # ==========================================
