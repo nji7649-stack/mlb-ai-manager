@@ -646,28 +646,12 @@ elif league_choice == "한국프로야구 (KBO)":
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
 
-# --- [NBA 데이터 로드 함수] ---
-@st.cache_data(ttl=3600)
-def load_nba_schedule(target_date):
-    # 날짜를 NBA URL 형식(YYYYMMDD)으로 변환
-    date_str = target_date.strftime('%Y%m%d')
-    url = f"https://data.nba.com/data/5s/json/cms/noseason/scoreboard/{date_str}/games.json"
-    try:
-        res = requests.get(url).json()
-        games_list = res['sports_content']['games']['game']
-        data = []
-        for g in games_list:
-            data.append({
-                '경기날짜': date_str,
-                '대진': f"{g['visitor']['team_name']} vs {g['home']['team_name']}",
-                '결과': f"{g['visitor']['score']} : {g['home']['score']}"
-            })
-        return pd.DataFrame(data)
-    except:
-        return pd.DataFrame()
+# 기존 KBO 모드 끝부분(648줄 근처)
+    except Exception as e:
+        st.error(f"데이터 오류 발생: {e}")
 
-# --- [NBA 모드 실행] ---
-elif league_choice == "NBA (농구)":
+# 아래 내용을 그대로 649줄부터 붙여넣으세요
+if league_choice == "NBA (농구)":
     st.header("🏀 NBA AI 분석실")
     nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
     with st.spinner("NBA 데이터를 불러오는 중..."):
