@@ -22,8 +22,7 @@ st.markdown("""
 # 🏀 [새로운 기능] NBA 전용 함수
 # ==========================================
 @st.cache_data(ttl=600)
-@st.cache_data(ttl=600)
-@st.cache_data(ttl=600)
+
 def load_nba_schedule(target_date):
     date_str = target_date.strftime('%Y-%m-%d')
     url = f"https://api.balldontlie.io/v1/games?dates[]={date_str}" 
@@ -33,13 +32,14 @@ def load_nba_schedule(target_date):
         games = res.get('data', [])
         data = []
         for g in games:
-            # 점수가 0으로 나올 때를 대비해 원본 데이터를 그대로 가져오도록 수정합니다.
+            # 점수 필드를 더 안전하게 가져오도록 변경합니다.
+            # v1 API에서 home_score/visitor_score가 0으로 나올 경우 g를 출력해보면 정확한 필드명을 알 수 있습니다.
             data.append({
                 '경기시간': g.get('status', '종료'),
                 '원정 팀': g.get('visitor_team', {}).get('abbreviation', 'N/A'),
-                '원정 점수': g.get('visitor_score', '집계중'),
+                '원정 점수': g.get('visitor_team_score', '집계중') if g.get('visitor_team_score') is not None else g.get('visitor_score', '집계중'),
                 '홈 팀': g.get('home_team', {}).get('abbreviation', 'N/A'),
-                '홈 점수': g.get('home_score', '집계중')
+                '홈 점수': g.get('home_team_score', '집계중') if g.get('home_team_score') is not None else g.get('home_score', '집계중')
             })
         return pd.DataFrame(data)
     except Exception as e:
