@@ -415,12 +415,30 @@ elif league_choice == "한국프로야구 (KBO)":
 
 # 🏀 NBA 모드 (새로 추가됨)
 elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 분석실")
-    nba_date = st.date_input("🗓️ NBA 경기 날짜 선택", datetime.now().date() - timedelta(days=1))
-    with st.spinner("NBA 데이터를 불러오는 중..."):
-        df_nba = load_nba_schedule(nba_date)
-        if not df_nba.empty:
-            st.write(f"### 📅 {nba_date.strftime('%Y-%m-%d')} 경기 결과 및 일정")
-            st.dataframe(df_nba, use_container_width=True, hide_index=True)
-        else:
-            st.info("선택하신 날짜에 진행된 NBA 경기가 없거나 데이터를 불러올 수 없습니다. 날짜를 변경해 보세요.")
+    st.header("🏀 NBA AI 정밀 분석실")
+    nba_date = st.date_input("🗓️ 경기 날짜 선택", datetime.now().date())
+    df_nba = load_nba_schedule(nba_date)
+    
+    if not df_nba.empty:
+        st.dataframe(df_nba, use_container_width=True)
+        # 경기 선택 및 분석
+        game_options = df_nba['홈 팀'] + " vs " + df_nba['원정 팀']
+        selected_game = st.selectbox("🔮 분석할 경기 선택:", game_options)
+        
+        if st.button("🚀 NBA 라인업 기반 시뮬레이션"):
+            home_team = selected_game.split(" vs ")[0]
+            away_team = selected_game.split(" vs ")[1]
+            
+            h_stats = load_nba_player_stats(home_team)
+            a_stats = load_nba_player_stats(away_team)
+            win_prob = run_nba_simulation(h_stats, a_stats)
+            
+            st.success(f"🏠 {home_team} 예상 승리 확률: {win_prob:.1f}%")
+            st.info(f"✈️ {away_team} 예상 승리 확률: {100-win_prob:.1f}%")
+            
+            # 분석 리포트
+            if win_prob > 60: st.markdown(f"> **AI 코멘트:** {home_team}의 공격 효율이 상대 수비를 압도합니다.")
+            elif win_prob < 40: st.markdown(f"> **AI 코멘트:** {away_team}의 원정 수비가 돋보입니다.")
+            else: st.markdown("> **AI 코멘트:** 전력이 팽팽합니다. 오늘 밤 치열한 접전이 예상됩니다.")
+    else:
+        st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
