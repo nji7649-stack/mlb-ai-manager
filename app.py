@@ -646,17 +646,3 @@ elif league_choice == "한국프로야구 (KBO)":
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
 
-# 기존 KBO 모드 끝부분(648줄 근처)
-    except Exception as e:
-        st.error(f"데이터 오류 발생: {e}")
-
-# 아래 내용을 그대로 649줄부터 붙여넣으세요
-if league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 분석실")
-    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
-    with st.spinner("NBA 데이터를 불러오는 중..."):
-        df_nba = load_nba_schedule(nba_date)
-        if not df_nba.empty:
-            st.dataframe(df_nba, use_container_width=True)
-        else:
-            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
