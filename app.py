@@ -6,14 +6,8 @@ import random
 from collections import Counter
 import time
 
-# --- [앱 설정 및 레이아웃] ---
+# --- [앱 전체 설정] ---
 st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
-st.markdown("""
-    <style>
-    .stApp { background-color: #0e1117; color: #f5f5f5; }
-    .stMetric { background-color: #1a1c23; padding: 20px; border-radius: 8px; border-left: 5px solid #ff4b4b; }
-    </style>
-""", unsafe_allow_html=True)
 
 # --- [NBA 데이터 로드 함수] ---
 @st.cache_data(ttl=600)
@@ -34,18 +28,18 @@ def load_nba_schedule(target_date):
     except:
         return pd.DataFrame()
 
-# --- [MLB/KBO 함수들 및 나머지 코드 그대로 유지] ---
-MLB_PARK_FACTORS = { 'Colorado Rockies': 1.12, ... } # (기존 MLB_PARK_FACTORS 코드 이어서 붙이세요)
-# ... (감독님이 가지고 계신 나머지 모든 MLB, KBO 함수 및 로직들을 여기에 붙이세요) ...
+# --- [기존 MLB/KBO 함수들] ---
+# (여기에 감독님이 기존에 쓰시던 MLB_PARK_FACTORS, load_mlb_all_data 등 모든 함수들을 붙여넣으세요)
+# ... (중략: 기존 MLB, KBO 코드 전부 여기에 위치) ...
 
-# --- [사이드바 및 모드 선택] ---
+# --- [메인 UI] ---
 st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
 league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
 
 if league_choice == "메이저리그 (MLB)":
-    # ... (기존 MLB 코드) ...
+    # ... (기존 MLB 렌더링 코드) ...
 elif league_choice == "한국프로야구 (KBO)":
-    # ... (기존 KBO 코드) ...
+    # ... (기존 KBO 렌더링 코드) ...
 elif league_choice == "NBA (농구)":
     st.header("🏀 NBA AI 분석실")
     nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
@@ -56,30 +50,27 @@ elif league_choice == "NBA (농구)":
         else:
             st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
 
-# --- [MLB/KBO 함수들 및 나머지 코드 그대로 유지] ---
-MLB_PARK_FACTORS = { 'Colorado Rockies': 1.12, ... } # (기존 MLB_PARK_FACTORS 코드 이어서 붙이세요)
-# ... (감독님이 가지고 계신 나머지 모든 MLB, KBO 함수 및 로직들을 여기에 붙이세요) ...
+import streamlit as st
+import pandas as pd
+import requests
+from datetime import datetime, date, timedelta
+import random
+from collections import Counter
+import time
 
-# --- [사이드바 및 모드 선택] ---
-st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
-league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
+# 앱 전체 기본 설정
+st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
 
-if league_choice == "메이저리그 (MLB)":
-    # ... (기존 MLB 코드) ...
-elif league_choice == "한국프로야구 (KBO)":
-    # ... (기존 KBO 코드) ...
-elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 분석실")
-    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
-    with st.spinner("NBA 데이터를 불러오는 중..."):
-        df_nba = load_nba_schedule(nba_date)
-        if not df_nba.empty:
-            st.dataframe(df_nba, use_container_width=True)
-        else:
-            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: #f5f5f5; }
+    .stMetric { background-color: #1a1c23; padding: 20px; border-radius: 8px; border-left: 5px solid #ff4b4b; }
+    </style>
+""", unsafe_allow_html=True)
 
-# 4. 여기서부터 기존의 MLB_PARK_FACTORS 등 MLB 전용 설정이 시작됩니다.
-MLB_PARK_FACTORS = { ... }
+# ==========================================
+# 🇺🇸 MLB 전용 설정 및 함수
+# ==========================================
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
@@ -331,8 +322,8 @@ st.sidebar.markdown("클릭 한 번으로 리그를 전환하세요.")
 
 # 💡 'us', 'KR' 국기 텍스트 깔끔하게 제거
 league_choice = st.sidebar.radio(
-"분석할 리그를 선택하세요:", 
-    ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"] # ✅ 이렇게 한 줄만 추가/수정
+    "분석할 리그를 선택하세요:", 
+    ["메이저리그 (MLB)", "한국프로야구 (KBO)"]
 )
 
 st.sidebar.markdown("---")
@@ -706,13 +697,3 @@ elif league_choice == "한국프로야구 (KBO)":
 
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
-
-elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 분석실")
-    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
-    with st.spinner("NBA 데이터를 불러오는 중..."):
-        df_nba = load_nba_schedule(nba_date)
-        if not df_nba.empty:
-            st.dataframe(df_nba, use_container_width=True)
-        else:
-            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
