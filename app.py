@@ -6,7 +6,7 @@ import random
 from collections import Counter
 import time
 
-# --- [앱 전체 설정] ---
+# --- [앱 설정] ---
 st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
 
 # --- [NBA 데이터 로드 함수] ---
@@ -28,28 +28,8 @@ def load_nba_schedule(target_date):
     except:
         return pd.DataFrame()
 
-# --- [기존 MLB/KBO 함수들] ---
-# (여기에 감독님이 기존에 쓰시던 MLB_PARK_FACTORS, load_mlb_all_data 등 모든 함수들을 붙여넣으세요)
-# ... (중략: 기존 MLB, KBO 코드 전부 여기에 위치) ...
-
-# --- [메인 UI] ---
-st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
-league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
-
-if league_choice == "메이저리그 (MLB)":
-    # ... (기존 MLB 렌더링 코드) ...
-elif league_choice == "한국프로야구 (KBO)":
-    # ... (기존 KBO 렌더링 코드) ...
-elif league_choice == "NBA (농구)":
-    st.header("🏀 NBA AI 분석실")
-    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
-    with st.spinner("NBA 데이터를 불러오는 중..."):
-        df_nba = load_nba_schedule(nba_date)
-        if not df_nba.empty:
-            st.dataframe(df_nba, use_container_width=True)
-        else:
-            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
-
+# --- [MLB/KBO 함수들] ---
+# (기존 MLB_PARK_FACTORS 등 모든 함수들을 여기에 넣습니다)
 import streamlit as st
 import pandas as pd
 import requests
@@ -697,3 +677,24 @@ elif league_choice == "한국프로야구 (KBO)":
 
     except Exception as e:
         st.error(f"데이터 오류 발생: {e}")
+
+
+MLB_PARK_FACTORS = {'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05, 'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02, 'Houston Astros': 1.01, 'Baltimore Orioles': 1.00, 'Toronto Blue Jays': 1.00, 'Minnesota Twins': 1.00, 'Chicago Cubs': 1.00, 'New York Yankees': 1.00, 'Kansas City Royals': 0.99, 'Arizona Diamondbacks': 0.99, 'Milwaukee Brewers': 0.98, 'Los Angeles Angels': 0.98, 'Washington Nationals': 0.98, 'San Francisco Giants': 0.97, 'Miami Marlins': 0.97, 'Pittsburgh Pirates': 0.96, 'Cleveland Guardians': 0.96, 'St. Louis Cardinals': 0.96, 'Detroit Tigers': 0.95, 'Tampa Bay Rays': 0.95, 'New York Mets': 0.95, 'Athletics': 0.94, 'San Diego Padres': 0.94, 'Seattle Mariners': 0.93}
+POSITION_TRANSLATIONS = {'P': '투수', 'C': '포수', '1B': '1루수', '2B': '2루수', '3B': '3루수', 'SS': '유격수', 'LF': '좌익수', 'CF': '중견수', 'RF': '우익수', 'DH': '지명타자', 'TWP': '투타겸업', 'O': '외야수', 'IF': '내야수', 'B': '야수', 'PH': '대타', 'PR': '대주자'}
+
+# (기존 load_mlb_all_data, load_mlb_team_momentum, calculate_mlb_ai_odds, load_mlb_schedule, load_mlb_live_lineup, calculate_platoon_ops, run_mlb_simulation, generate_ai_commentary 함수들을 여기에 차례대로 붙이세요)
+
+# --- [사이드바 및 메인 UI] ---
+st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
+league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
+
+if league_choice == "메이저리그 (MLB)":
+    # (기존 MLB 렌더링 코드들 붙이기)
+elif league_choice == "한국프로야구 (KBO)":
+    # (기존 KBO 렌더링 코드들 붙이기)
+elif league_choice == "NBA (농구)":
+    st.header("🏀 NBA AI 분석실")
+    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date())
+    df_nba = load_nba_schedule(nba_date)
+    if not df_nba.empty: st.dataframe(df_nba, use_container_width=True)
+    else: st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
