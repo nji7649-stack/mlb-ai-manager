@@ -22,24 +22,27 @@ st.markdown("""
 # 🏀 [새로운 기능] NBA 전용 함수
 # ==========================================
 @st.cache_data(ttl=600)
+@st.cache_data(ttl=600)
 def load_nba_schedule(target_date):
-    # API 서버 시차 및 데이터 유무를 고려하여 정보를 가져옵니다.
     date_str = target_date.strftime('%Y-%m-%d')
-    url = f"https://www.balldontlie.io/api/v1/games?start_date={date_str}&end_date={date_str}"
+    # balldontlie v1 API는 이제 키가 필수입니다
+    url = f"https://api.balldontlie.io/v1/games?dates[]={date_str}" 
+    headers = {"Authorization": "470ab1a9-a550-4eba-9e06-dd55721c64a9"}
     try:
-        res = requests.get(url, timeout=10).json()
+        res = requests.get(url, headers=headers, timeout=10).json()
         games = res.get('data', [])
         data = []
         for g in games:
             data.append({
-                '경기시간': g['status'],
-                '원정 팀': g['visitor_team']['full_name'],
-                '원정 점수': g['visitor_score'],
-                '홈 팀': g['home_team']['full_name'],
-                '홈 점수': g['home_score']
+                '경기시간': g.get('status', '종료'),
+                '원정 팀': g.get('visitor_team', {}).get('abbreviation', ''),
+                '원정 점수': g.get('visitor_score', 0),
+                '홈 팀': g.get('home_team', {}).get('abbreviation', ''),
+                '홈 점수': g.get('home_score', 0)
             })
         return pd.DataFrame(data)
-    except:
+    except Exception as e:
+        st.error(f"데이터 로딩 오류: {e}")
         return pd.DataFrame()
 
 # ==========================================
