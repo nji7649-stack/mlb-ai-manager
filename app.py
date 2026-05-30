@@ -6,38 +6,8 @@ import random
 from collections import Counter
 import time
 
-# (함수 정의들을 여기에 쭉 나열합니다: load_mlb_all_data, load_mlb_team_momentum 등...)
-
-# ✅ 여기에 NBA 함수를 추가하면 됩니다!
-@st.cache_data(ttl=3600)
-def load_nba_schedule(target_date):
-    date_str = target_date.strftime('%Y%m%d')
-    url = f"https://data.nba.com/data/5s/json/cms/noseason/scoreboard/{date_str}/games.json"
-    try:
-        res = requests.get(url, timeout=5).json()
-        games_list = res['sports_content']['games']['game']
-        data = []
-        for g in games_list:
-            data.append({
-                '경기날짜': date_str,
-                '대진': f"{g['visitor']['team_name']} vs {g['home']['team_name']}",
-                '결과': f"{g['visitor']['score']} : {g['home']['score']}"
-            })
-        return pd.DataFrame(data)
-    except:
-        return pd.DataFrame()
-        
-import streamlit as st
-import pandas as pd
-import requests
-from datetime import datetime, date, timedelta
-import random
-from collections import Counter
-import time
-
-# 앱 전체 기본 설정
+# --- [앱 설정 및 레이아웃] ---
 st.set_page_config(page_title="통합 AI 스포츠 분석실", layout="wide")
-
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #f5f5f5; }
@@ -45,9 +15,49 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 🇺🇸 MLB 전용 설정 및 함수
-# ==========================================
+# --- [NBA 데이터 로드 함수] ---
+@st.cache_data(ttl=600)
+def load_nba_schedule(target_date):
+    date_str = target_date.strftime('%Y-%m-%d')
+    url = f"https://www.balldontlie.io/api/v1/games?start_date={date_str}&end_date={date_str}"
+    try:
+        res = requests.get(url, timeout=10).json()
+        games = res.get('data', [])
+        data = []
+        for g in games:
+            data.append({
+                '경기날짜': date_str,
+                '대진': f"{g['visitor_team']['abbreviation']} vs {g['home_team']['abbreviation']}",
+                '결과': f"{g['visitor_score']} : {g['home_score']}"
+            })
+        return pd.DataFrame(data)
+    except:
+        return pd.DataFrame()
+
+# --- [MLB/KBO 함수들 및 나머지 코드 그대로 유지] ---
+MLB_PARK_FACTORS = { 'Colorado Rockies': 1.12, ... } # (기존 MLB_PARK_FACTORS 코드 이어서 붙이세요)
+# ... (감독님이 가지고 계신 나머지 모든 MLB, KBO 함수 및 로직들을 여기에 붙이세요) ...
+
+# --- [사이드바 및 모드 선택] ---
+st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
+league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
+
+if league_choice == "메이저리그 (MLB)":
+    # ... (기존 MLB 코드) ...
+elif league_choice == "한국프로야구 (KBO)":
+    # ... (기존 KBO 코드) ...
+elif league_choice == "NBA (농구)":
+    st.header("🏀 NBA AI 분석실")
+    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
+    with st.spinner("NBA 데이터를 불러오는 중..."):
+        df_nba = load_nba_schedule(nba_date)
+        if not df_nba.empty:
+            st.dataframe(df_nba, use_container_width=True)
+        else:
+            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
+
+# 4. 여기서부터 기존의 MLB_PARK_FACTORS 등 MLB 전용 설정이 시작됩니다.
+MLB_PARK_FACTORS = { ... }
 MLB_PARK_FACTORS = {
     'Colorado Rockies': 1.12, 'Cincinnati Reds': 1.08, 'Boston Red Sox': 1.07, 'Texas Rangers': 1.05,
     'Chicago White Sox': 1.04, 'Atlanta Braves': 1.03, 'Los Angeles Dodgers': 1.03, 'Philadelphia Phillies': 1.02,
