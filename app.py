@@ -56,6 +56,28 @@ elif league_choice == "NBA (농구)":
         else:
             st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
 
+# --- [MLB/KBO 함수들 및 나머지 코드 그대로 유지] ---
+MLB_PARK_FACTORS = { 'Colorado Rockies': 1.12, ... } # (기존 MLB_PARK_FACTORS 코드 이어서 붙이세요)
+# ... (감독님이 가지고 계신 나머지 모든 MLB, KBO 함수 및 로직들을 여기에 붙이세요) ...
+
+# --- [사이드바 및 모드 선택] ---
+st.sidebar.title("⚾ 통합 AI 스포츠 분석실")
+league_choice = st.sidebar.radio("분석할 리그를 선택하세요:", ["메이저리그 (MLB)", "한국프로야구 (KBO)", "NBA (농구)"])
+
+if league_choice == "메이저리그 (MLB)":
+    # ... (기존 MLB 코드) ...
+elif league_choice == "한국프로야구 (KBO)":
+    # ... (기존 KBO 코드) ...
+elif league_choice == "NBA (농구)":
+    st.header("🏀 NBA AI 분석실")
+    nba_date = st.date_input("🗓️ 날짜 선택", datetime.now().date(), key="nba_date_picker")
+    with st.spinner("NBA 데이터를 불러오는 중..."):
+        df_nba = load_nba_schedule(nba_date)
+        if not df_nba.empty:
+            st.dataframe(df_nba, use_container_width=True)
+        else:
+            st.info("선택하신 날짜에 진행된 NBA 경기가 없습니다.")
+
 # 4. 여기서부터 기존의 MLB_PARK_FACTORS 등 MLB 전용 설정이 시작됩니다.
 MLB_PARK_FACTORS = { ... }
 MLB_PARK_FACTORS = {
